@@ -42,7 +42,7 @@ return [
             'synchronous' => null,
         ],
 
-        'mysql' => [
+        'newstore' => [
             'driver' => 'mysql',
             'url' => env('DB_URL'),
             'host' => env('DB_HOST', '127.0.0.1'),
@@ -101,6 +101,7 @@ return [
                 PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],
         ],
+
 
         // 'mariadb' => [
         //     'driver' => 'mariadb',
