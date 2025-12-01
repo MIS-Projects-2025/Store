@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\DemoController;
+use App\Http\Controllers\DashboardController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -11,8 +11,12 @@ require __DIR__ . '/auth.php';
 
 // General routes
 require __DIR__ . '/general.php';
+require __DIR__ . '/store.php';
 
-Route::get("/demo", [DemoController::class, 'index'])->name('demo');
+// Route::prefix($app_name)->group(function(){
+// Route::get("/dashboard", [DashboardController::class, 'index'])->name('dashboard');
+// });
+
 
 Route::fallback(function () {
     return Inertia::render('404');
