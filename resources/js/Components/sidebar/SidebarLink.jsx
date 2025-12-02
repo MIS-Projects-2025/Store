@@ -6,23 +6,17 @@ const SidebarLink = ({
     label,
     icon,
     notifications = 0,
-    // activeColor = "text-blue-600",
 }) => {
     const { url } = usePage();
 
     const isActive = url === new URL(href, window.location.origin).pathname;
 
-    const themeColor =
-        localStorage.getItem("theme") === "dark"
-            ? "bg-gray-700"
-            : "bg-gray-200";
-
-    const activeColor = isActive ? themeColor : "";
-
     return (
         <Link
             href={href}
-            className={`relative flex justify-between px-4 py-1 pl-[10px] transition-colors duration-150 rounded-md ${activeColor}`}
+            className={`relative flex justify-between px-4 py-1 pl-[10px] transition-colors duration-150 rounded-md ${
+                isActive ? "bg-white/20" : ""
+            } hover:bg-white/10`}
         >
             <div className="flex items-center">
                 <span className="w-6 h-6 pt-[2px]">{icon}</span>

@@ -32,21 +32,11 @@ export default function Dropdown({
         setOpen(hasActiveLink);
     }, [hasActiveLink]);
 
-    const hoverColor =
-        localStorage.getItem("theme") === "dark"
-            ? "hover:bg-gray-800"
-            : "hover:bg-gray-100";
-
-    const activeColor =
-        localStorage.getItem("theme") === "dark"
-            ? "bg-gray-700"
-            : "bg-gray-200";
-
     return (
         <div className="relative w-full">
             <button
                 onClick={() => setOpen(!open)}
-                className={`flex items-center justify-between w-full px-[10px] py-2 rounded ${hoverColor}`}
+                className="flex items-center justify-between w-full px-[10px] py-2 rounded hover:bg-white/10 transition-colors"
             >
                 <div className="relative flex items-center space-x-1">
                     {icon && <span className="w-6 h-6 pt-[2px]">{icon}</span>}
@@ -110,8 +100,8 @@ export default function Dropdown({
                                 key={`${normalizePath(link.href)}-${index}`}
                                 href={link.href}
                                 className={`flex items-center justify-between px-2 py-1 text-sm rounded transition-colors ${
-                                    active ? `${activeColor}` : ""
-                                } ${hoverColor}`}
+                                    active ? "bg-white/20" : ""
+                                } hover:bg-white/10`}
                             >
                                 <div className="flex items-center space-x-1">
                                     {link.icon ? (

@@ -12,10 +12,8 @@ require __DIR__ . '/auth.php';
 // General routes
 require __DIR__ . '/general.php';
 require __DIR__ . '/store.php';
-
-// Route::prefix($app_name)->group(function(){
-// Route::get("/dashboard", [DashboardController::class, 'index'])->name('dashboard');
-// });
+require __DIR__ . '/consumable.php';
+require __DIR__ . '/supplies.php';
 
 
 Route::fallback(function () {

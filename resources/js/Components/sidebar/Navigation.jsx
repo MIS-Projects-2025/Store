@@ -2,97 +2,65 @@ import Dropdown from "@/Components/sidebar/Dropdown";
 import SidebarLink from "@/Components/sidebar/SidebarLink";
 import { usePage } from "@inertiajs/react";
 
+// React Icons (Heroicons v2)
+import { HiSquares2X2, HiFolderOpen, HiUsers, HiCube, HiArchiveBox, HiClipboardDocumentList } from "react-icons/hi2";
+
+
 export default function NavLinks() {
     const { emp_data } = usePage().props;
+
     return (
         <nav
             className="flex flex-col flex-grow space-y-1 overflow-y-auto"
             style={{ scrollbarWidth: "none" }}
         >
+            {/* Dashboard */}
             <SidebarLink
                 href={route("dashboard")}
                 label="Dashboard"
-                icon={
-                    <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        strokeWidth="1.5"
-                        stroke="currentColor"
-                        className="w-5 h-5"
-                    >
-                        <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"
-                        />
-                    </svg>
-                }
+                icon={<HiSquares2X2 className="w-5 h-5" />}
                 notifications={5}
             />
 
+            {/* Manage Material */}
             <Dropdown
-                label="Dropdown"
-                icon={
-                    <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        strokeWidth="1.5"
-                        stroke="currentColor"
-                        className="w-5 h-5"
-                    >
-                        <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"
-                        />
-                    </svg>
-                }
+                label="Manage Material"
+                icon={<HiFolderOpen className="w-5 h-5" />}
                 links={[
                     {
-                        href: route("admin"),
-                        label: "Profile",
-                        notification: true,
+                        href: route("consumable"),
+                        label: "Consumable",
+                        icon: <HiCube className="w-5 h-5" />,
                     },
                     {
-                        href: route("admin"),
-                        label: "Account",
-                        notification: 125,
+                        href: route("supplies"),
+                        label: "Supplies",
+                        icon: <HiArchiveBox className="w-5 h-5" />,
                     },
                     {
                         href: route("dashboard"),
-                        label: "No notifications",
-                        notification: false,
+                        label: "Consigned",
+                        icon: <HiClipboardDocumentList className="w-5 h-5" />,
                     },
                 ]}
-                notification={true}
+                notifications={true}
             />
 
+            {/* Dashboard */}
+            <SidebarLink
+                href={route("dashboard")}
+                label="Dashboard"
+                icon={<HiSquares2X2 className="w-5 h-5" />}
+                notifications={5}
+            />
+
+            {/* Admin Page – only for superadmin/admin */}
             {["superadmin", "admin"].includes(emp_data?.emp_system_role) && (
-                <div>
-                    <SidebarLink
-                        href={route("admin")}
-                        label="Administrators"
-                        icon={
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                strokeWidth="1.5"
-                                stroke="currentColor"
-                                className="w-5 h-5"
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"
-                                />
-                            </svg>
-                        }
-                        // notifications={5}
-                    />
-                </div>
+                <SidebarLink
+                    href={route("admin")}
+                    label="Administrators"
+                    icon={<HiUsers className="w-5 h-5" />}
+                />
             )}
         </nav>
     );

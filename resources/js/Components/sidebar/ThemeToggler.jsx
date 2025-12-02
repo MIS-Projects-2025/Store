@@ -13,7 +13,7 @@ export default function ThemeToggler({ toggleTheme, theme }) {
                 />
                 {/* Sun icon (Light mode) */}
                 <svg
-                    className="w-5 h-5 fill-current swap-off"
+                    className="w-5 h-5 fill-current swap-off text-white"
                     xmlns="http://www.w3.org/2000/svg"
                     viewBox="0 0 24 24"
                 >
@@ -22,7 +22,7 @@ export default function ThemeToggler({ toggleTheme, theme }) {
 
                 {/* Moon icon (Dark mode) */}
                 <svg
-                    className="w-5 h-5 fill-current swap-on"
+                    className="w-5 h-5 fill-current swap-on text-white"
                     xmlns="http://www.w3.org/2000/svg"
                     viewBox="0 0 24 24"
                 >
