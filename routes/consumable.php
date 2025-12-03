@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ConsumableController;
+use App\Http\Controllers\OrderMaterialController; // ✅ Updated import
 use App\Http\Middleware\AuthMiddleware;
 
 
@@ -19,5 +20,9 @@ Route::prefix($app_name)
         Route::post('/consumable/add-quantity', [ConsumableController::class, 'addQuantity'])->name('consumable.addQuantity');
         Route::get('/consumable/{id}/history', [ConsumableController::class, 'getHistory'])->name('consumable.history');
         Route::get('/consumable-history', [ConsumableController::class, 'getAllHistory'])->name('consumable.allHistory');
+        
+        // Order Material Routes (previously Order Consumable)
+        Route::get('/order-material', [OrderMaterialController::class, 'index'])->name('order-material.index'); // ✅ Updated
+        Route::post('/order-material/submit', [OrderMaterialController::class, 'submitRequest'])->name('order-material.submit'); // ✅ Updated
         
     });

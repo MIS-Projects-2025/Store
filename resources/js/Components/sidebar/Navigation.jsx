@@ -22,6 +22,13 @@ export default function NavLinks() {
                 notifications={5}
             />
 
+            {/* Consumable Issuance */}
+            <SidebarLink
+                href={route("order-material.index")}
+                label="Consumable Issuance"
+                icon={<HiSquares2X2 className="w-5 h-5" />}
+            />
+
             {/* Manage Material */}
             <Dropdown
                 label="Manage Material"
@@ -46,13 +53,19 @@ export default function NavLinks() {
                 notifications={true}
             />
 
-            {/* Dashboard */}
+            {/* Order Material */}
             <SidebarLink
-                href={route("dashboard")}
-                label="Dashboard"
+                href={route("order-material.index")}
+                label="Order Material"
                 icon={<HiSquares2X2 className="w-5 h-5" />}
-                notifications={5}
             />
+
+            {/* Approval Request */}
+            <SidebarLink
+                href={route("approval")}
+                label="Approval Request"
+                icon={<HiSquares2X2 className="w-5 h-5" />}
+            />            
 
             {/* Admin Page – only for superadmin/admin */}
             {["superadmin", "admin"].includes(emp_data?.emp_system_role) && (

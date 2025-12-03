@@ -4,13 +4,13 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-class ConsumableCart extends Model
+class SuppliesCart extends Model
 {
-    // Use a non-default DB connection
+    // Use the specific DB connection
     protected $connection = 'newstore';
 
     // Table name
-    protected $table = 'consumable_cart';
+    protected $table = 'supplies_cart';
 
     // Primary key
     protected $primaryKey = 'ID';
@@ -19,19 +19,17 @@ class ConsumableCart extends Model
 
     protected $keyType = 'int';
 
-    // Mass assignable fields
+    // Mass assignable columns
     protected $fillable = [
         'Itemcode',
         'mat_description',
-        'Long_description',
         'Bin_location',
-        'supplier',
-        'category',
         'qty',
         'request_qty',
         'uom',
         'minimum',
         'maximum',
+        'price',
         'order_date',
         'employee_no',
         'approver1',
@@ -57,7 +55,6 @@ class ConsumableCart extends Model
         'Issued_qty' => 'integer',
     ];
 
-    // Laravel timestamps
     public $timestamps = true;
     
     // Status constants for easy reference
