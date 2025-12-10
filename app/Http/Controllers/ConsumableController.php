@@ -6,20 +6,52 @@ use App\Models\Consumable;
 use App\Models\ConsumableHistory;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
+use Maatwebsite\Excel\Facades\Excel;
+use App\Imports\ConsumablesImport;
+use Illuminate\Support\Facades\Storage;
 
 class ConsumableController extends Controller
 {
     /**
-     * Display a listing of consumables.
+     * Display a listing of consumables with pagination.
      */
-    public function index(Request $request)
-    {
-        $consumables = Consumable::orderBy('created_at', 'desc')->get();
-        
-        return Inertia::render('Consumable', [
-            'consumables' => $consumables
-        ]);
+public function index(Request $request)
+{
+    $perPage = $request->input('per_page', 10);
+    $search = $request->input('search', '');
+    
+    $query = Consumable::query()->orderBy('created_at', 'desc');
+    
+    // Apply search filter if provided
+    if ($search) {
+        $query->where(function($q) use ($search) {
+            $q->where('Itemcode', 'like', "%{$search}%")
+              ->orWhere('mat_description', 'like', "%{$search}%")
+              ->orWhere('Long_description', 'like', "%{$search}%")
+              ->orWhere('Bin_location', 'like', "%{$search}%")
+              ->orWhere('supplier', 'like', "%{$search}%")
+              ->orWhere('category', 'like', "%{$search}%");
+        });
     }
+    
+    $consumables = $query->paginate($perPage)->withQueryString();
+    
+    return Inertia::render('Consumable', [
+        'consumables' => [
+            'data' => $consumables->items(),
+            'current_page' => $consumables->currentPage(),
+            'last_page' => $consumables->lastPage(),
+            'per_page' => $consumables->perPage(),
+            'total' => $consumables->total(),
+            'from' => $consumables->firstItem(),
+            'to' => $consumables->lastItem(),
+        ],
+        'filters' => [
+            'search' => $search,
+            'per_page' => $perPage
+        ]
+    ]);
+}
 
     /**
      * Store a newly created consumable.
@@ -234,4 +266,145 @@ class ConsumableController extends Controller
             'history' => $history
         ]);
     }
+
+    /**
+     * Add quantities to multiple consumables at once.
+     */
+    public function batchAddQuantity(Request $request)
+    {
+        $validated = $request->validate([
+            'items' => 'required|array|min:1',
+            'items.*.itemId' => 'required|exists:consumable,id',
+            'items.*.addAmount' => 'required|numeric|min:0.01'
+        ]);
+
+        $user_id = session('emp_data.emp_id', 'unknown');
+        $user_name = session('emp_data.emp_name', 'Unknown User');
+
+        foreach ($validated['items'] as $item) {
+            $consumable = Consumable::findOrFail($item['itemId']);
+            $oldQty = $consumable->qty;
+            
+            $consumable->qty = $consumable->qty + $item['addAmount'];
+            $consumable->save();
+
+            ConsumableHistory::create([
+                'consumable_id' => $consumable->id,
+                'action' => 'quantity_added',
+                'user_id' => $user_id,
+                'user_name' => $user_name,
+                'item_code' => $consumable->Itemcode,
+                'changes' => [
+                    "quantity: " . number_format($oldQty, 2) . " → " . number_format($consumable->qty, 2),
+                    "added_amount: " . number_format($item['addAmount'], 2)
+                ],
+                'old_values' => ['qty' => $oldQty],
+                'new_values' => ['qty' => $consumable->qty, 'added_amount' => $item['addAmount']],
+                'created_at' => now(),
+            ]);
+        }
+
+        return redirect()->back()->with('success', count($validated['items']) . ' items updated successfully.');
+    }
+
+    /**
+     * Import consumables from Excel
+     */
+    public function import(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:xlsx,xls,csv|max:10240', // 10MB max
+        ]);
+
+        try {
+            $file = $request->file('file');
+            $import = new ConsumablesImport();
+            
+            Excel::import($import, $file);
+            
+            $stats = $import->getStats();
+            
+            $message = "Import completed: {$stats['imported']} items imported";
+            
+            if ($stats['skipped'] > 0) {
+                $message .= ", {$stats['skipped']} items skipped";
+            }
+            
+            // Always redirect back to the consumable page
+            if (!empty($stats['errors'])) {
+                return redirect()->route('consumable')->with([
+                    'warning' => $message,
+                    'import_errors' => $stats['errors']
+                ]);
+            }
+            
+            return redirect()->route('consumable')->with('success', $message);
+            
+        } catch (\Exception $e) {
+            return redirect()->route('consumable')->with('error', 'Import failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Download import template
+     */
+    public function downloadTemplate()
+    {
+        $headers = [
+            'Itemcode',
+            'mat_description',
+            'Long_description',
+            'Bin_location',
+            'supplier',
+            'category',
+            'qty',
+            'uom',
+            'minimum',
+            'maximum'
+        ];
+        
+        $sampleData = [
+            [
+                'ITEM001',
+                'Sample Item',
+                'This is a sample long description',
+                'A-01-01',
+                'Sample Supplier Inc.',
+                'Electronics',
+                100,
+                'pcs',
+                10,
+                500
+            ]
+        ];
+        
+        $filename = 'consumable_import_template.csv';
+        $handle = fopen('php://temp', 'r+');
+        
+        // Write headers
+        fputcsv($handle, $headers);
+        
+        // Write sample data
+        foreach ($sampleData as $row) {
+            fputcsv($handle, $row);
+        }
+        
+        rewind($handle);
+        $csv = stream_get_contents($handle);
+        fclose($handle);
+        
+        return response($csv, 200, [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ]);
+    }
+
+    public function getAllForDropdown()
+{
+    $items = Consumable::select('id', 'Itemcode', 'mat_description', 'qty', 'uom', 'maximum', 'minimum', 'category')
+        ->orderBy('Itemcode')
+        ->get();
+    
+    return response()->json($items);
+}
 }

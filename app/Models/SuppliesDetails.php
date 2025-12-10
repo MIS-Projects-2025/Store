@@ -5,30 +5,32 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class SuppliesHistory extends Model
+class SuppliesDetails extends Model
 {
     use HasFactory;
 
     protected $connection = 'newstore';
-    protected $table = 'supplies_history';
+    protected $table = 'supplies_details';
 
     protected $fillable = [
         'supply_id',
-        'action',
-        'user_id',
-        'user_name',
-        'item_code',
-        'changes',
-        'old_values',
-        'new_values',
+        'itemcode',
+        'detailed_description',
+        'uom',
+        'minimum',
+        'maximum',
+        'price',
+        'qty',
+        'bin_location',
     ];
 
     protected $casts = [
-        'action' => 'string', // enum can be validated via model or request
-        'changes' => 'array', // type Json
-        'old_values' => 'array', // type Json
-        'new_values' => 'array', // type Json
+        'minimum' => 'integer',
+        'maximum' => 'integer',
+        'price' => 'decimal:2',
+        'qty' => 'integer',
         'created_at' => 'datetime',
+        'updated_at' => 'datetime',
     ];
 
     // Relationship: belongs to Supply

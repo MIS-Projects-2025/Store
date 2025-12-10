@@ -8,6 +8,7 @@ use Inertia\Inertia;
 use Carbon\Carbon;
 use App\Models\Consumable;
 use App\Models\Supplies;
+use App\Models\SuppliesDetails;
 use App\Models\ConsumableCart;
 use App\Models\SuppliesCart;
 use App\Models\EmployeeMasterlist;
@@ -16,11 +17,10 @@ class OrderMaterialController extends Controller
 {
     public function index(Request $request)
     {
-        // Fetch all consumables from the database
-        $consumables = Consumable::all();
-        
-        // Fetch all supplies from the database
-        $supplies = Supplies::all();
+        $page = $request->input('page', 1);
+        $perPage = $request->input('per_page', 10);
+        $search = $request->input('search', '');
+        $type = $request->input('type', 'consumable');
         
         // Get current user's employee data from session
         $empData = session('emp_data', []);
@@ -32,16 +32,99 @@ class OrderMaterialController extends Controller
         // Fetch approvers based on employee position
         $approvers = $this->getApproversForEmployee($empName, $empPosition, $empDept, $empProdline);
         
+        if ($type === 'consumable') {
+            $query = Consumable::query();
+            
+            if ($search) {
+                $query->where(function($q) use ($search) {
+                    $q->where('Itemcode', 'like', "%{$search}%")
+                      ->orWhere('mat_description', 'like', "%{$search}%")
+                      ->orWhere('Long_description', 'like', "%{$search}%")
+                      ->orWhere('qty', 'like', "%{$search}%")
+                      ->orWhere('uom', 'like', "%{$search}%");
+                });
+            }
+            
+            $total = $query->count();
+            $items = $query->skip(($page - 1) * $perPage)
+                          ->take($perPage)
+                          ->get()
+                          ->map(function($item) {
+                              return [
+                                  'id' => $item->id,
+                                  'itemCode' => $item->Itemcode,
+                                  'description' => $item->mat_description,
+                                  'detailedDescription' => $item->Long_description,
+                                  'quantity' => $item->qty,
+                                  'uom' => $item->uom,
+                                  'binLocation' => $item->Bin_location ?? '',
+                              ];
+                          });
+            
+            $paginationData = [
+                'data' => $items,
+                'current_page' => $page,
+                'per_page' => $perPage,
+                'total' => $total,
+                'last_page' => ceil($total / $perPage)
+            ];
+        } else {
+            // Supplies pagination - flatten supplies details
+            $suppliesData = Supplies::with('details')->get();
+            $allSupplies = [];
+            
+            foreach ($suppliesData as $supply) {
+                foreach ($supply->details as $detail) {
+                    $allSupplies[] = [
+                        'id' => $supply->id,
+                        'detail_id' => $detail->id,
+                        'itemCode' => $supply->itemcode,
+                        'description' => $supply->material_description,
+                        'detailedDescription' => $detail->detailed_description,
+                        'binLocation' => $detail->bin_location,
+                        'quantity' => $detail->qty ?? 0,
+                        'uom' => $detail->uom,
+                        'minimum' => $detail->minimum ?? 0,
+                        'maximum' => $detail->maximum ?? 0,
+                        'price' => $detail->price ?? 0,
+                    ];
+                }
+            }
+            
+            // Filter if search term exists
+            if ($search) {
+                $allSupplies = array_filter($allSupplies, function($item) use ($search) {
+                    $searchLower = strtolower($search);
+                    return str_contains(strtolower($item['itemCode'] ?? ''), $searchLower) ||
+                           str_contains(strtolower($item['description'] ?? ''), $searchLower) ||
+                           str_contains(strtolower($item['detailedDescription'] ?? ''), $searchLower) ||
+                           str_contains(strtolower($item['binLocation'] ?? ''), $searchLower) ||
+                           str_contains(strtolower((string)$item['quantity']), $searchLower) ||
+                           str_contains(strtolower($item['uom'] ?? ''), $searchLower);
+                });
+                $allSupplies = array_values($allSupplies); // Re-index array
+            }
+            
+            $total = count($allSupplies);
+            $items = array_slice($allSupplies, ($page - 1) * $perPage, $perPage);
+            
+            $paginationData = [
+                'data' => array_values($items), // Ensure numeric keys
+                'current_page' => $page,
+                'per_page' => $perPage,
+                'total' => $total,
+                'last_page' => $total > 0 ? ceil($total / $perPage) : 1
+            ];
+        }
+        
         return Inertia::render('OrderMaterial', [
-            'consumables' => $consumables,
-            'supplies' => $supplies,
+            'pagination' => $paginationData,
             'approvers' => $approvers,
+            'currentType' => $type,
+            'currentSearch' => $search,
         ]);
     }
 
-    /**
-     * Get approvers based on employee position and department
-     */
     private function getApproversForEmployee($empName, $empPosition, $empDept, $empProdline)
     {
         $approvers = [];
@@ -51,7 +134,6 @@ class OrderMaterialController extends Controller
         }
 
         try {
-            // Get employee data from masterlist
             $employee = EmployeeMasterlist::where('EMPNAME', $empName)
                 ->where('ACCSTATUS', 1)
                 ->first();
@@ -64,10 +146,7 @@ class OrderMaterialController extends Controller
             $approver1Id = $employee->APPROVER1;
             $approver2Id = $employee->APPROVER2;
 
-            // For regular employees (not position 2, 3, or 4)
             if (!in_array($empPosition, [2, 3, 4])) {
-                // Get employees in same department who are not position 1 or 4
-                // and have approvers assigned
                 $deptApprovers = EmployeeMasterlist::where('ACCSTATUS', 1)
                     ->whereNotIn('EMPPOSITION', [1, 4])
                     ->where('DEPARTMENT', $empDept)
@@ -86,14 +165,12 @@ class OrderMaterialController extends Controller
                     ];
                 }
 
-                // Also add the designated APPROVER1 if exists
                 if ($approver1Id && $approver1Id != 'na') {
                     $designatedApprover = EmployeeMasterlist::where('EMPLOYID', $approver1Id)
                         ->where('ACCSTATUS', 1)
                         ->first();
                     
                     if ($designatedApprover) {
-                        // Check if not already in list
                         $exists = collect($approvers)->contains('id', $designatedApprover->EMPLOYID);
                         if (!$exists) {
                             $approvers[] = [
@@ -104,9 +181,7 @@ class OrderMaterialController extends Controller
                     }
                 }
             }
-            // For position 2 (Supervisors/Leads)
             elseif ($empPosition == 2) {
-                // Get APPROVER1 and APPROVER2
                 $approverIds = array_filter([$approver1Id, $approver2Id], function($id) {
                     return $id && $id != 'na';
                 });
@@ -125,9 +200,7 @@ class OrderMaterialController extends Controller
                     }
                 }
             }
-            // For position 3 or other positions
             else {
-                // Get only APPROVER2
                 if ($approver2Id && $approver2Id != 'na') {
                     $designatedApprover = EmployeeMasterlist::where('EMPLOYID', $approver2Id)
                         ->where('ACCSTATUS', 1)
@@ -149,14 +222,10 @@ class OrderMaterialController extends Controller
         return $approvers;
     }
 
-    /**
-     * Generate MRS number in format: MIS24-0009
-     */
     private function generateMrsNumber()
     {
-        $year = date('y'); // Get last 2 digits of year (e.g., 24 for 2024)
+        $year = date('y');
         
-        // Get the last MRS number from both tables
         $lastConsumable = ConsumableCart::whereNotNull('mrs_no')
             ->where('mrs_no', 'like', "MIS{$year}-%")
             ->orderBy('ID', 'desc')
@@ -167,7 +236,6 @@ class OrderMaterialController extends Controller
             ->orderBy('ID', 'desc')
             ->first();
         
-        // Extract sequence numbers
         $lastConsumableSeq = 0;
         $lastSuppliesSeq = 0;
         
@@ -181,10 +249,7 @@ class OrderMaterialController extends Controller
             $lastSuppliesSeq = isset($parts[1]) ? (int)$parts[1] : 0;
         }
         
-        // Get the highest sequence number
         $lastSeq = max($lastConsumableSeq, $lastSuppliesSeq);
-        
-        // Increment and format
         $newSeq = $lastSeq + 1;
         $mrsNo = "MIS{$year}-" . str_pad($newSeq, 4, '0', STR_PAD_LEFT);
         
@@ -196,6 +261,7 @@ class OrderMaterialController extends Controller
         $validated = $request->validate([
             'cartItems' => 'required|array',
             'cartItems.*.id' => 'required|integer',
+            'cartItems.*.detail_id' => 'nullable|integer',
             'cartItems.*.type' => 'required|in:consumable,supplies',
             'cartItems.*.requestQuantity' => 'required|integer|min:1',
             'cartItems.*.remarks' => 'nullable|string',
@@ -215,29 +281,26 @@ class OrderMaterialController extends Controller
         try {
             DB::connection('newstore')->beginTransaction();
 
-            // Generate MRS number once for this submission
             $mrsNo = $this->generateMrsNumber();
 
             foreach ($cartItems as $cartItem) {
                 $itemId = $cartItem['id'];
+                $detailId = $cartItem['detail_id'] ?? null;
                 $type = $cartItem['type'];
                 $requestQty = $cartItem['requestQuantity'];
                 $itemRemarks = $cartItem['remarks'] ?? null;
 
                 if ($type === 'consumable') {
-                    // Fetch original consumable data with lock for update
                     $consumable = Consumable::lockForUpdate()->find($itemId);
                     
                     if (!$consumable) {
                         throw new \Exception("Consumable item with ID {$itemId} not found");
                     }
 
-                    // Check if sufficient quantity is available
                     if ($consumable->qty < $requestQty) {
                         throw new \Exception("Insufficient quantity for {$consumable->mat_description}. Available: {$consumable->qty}, Requested: {$requestQty}");
                     }
 
-                    // Create consumable cart entry
                     ConsumableCart::create([
                         'Itemcode' => $consumable->Itemcode,
                         'mat_description' => $consumable->mat_description,
@@ -262,36 +325,39 @@ class OrderMaterialController extends Controller
                         'remarks' => $itemRemarks,
                     ]);
 
-                    // Deduct the requested quantity from the consumable table
                     $consumable->qty = $consumable->qty - $requestQty;
                     $consumable->save();
 
                     \Log::info("Deducted {$requestQty} from consumable ID {$itemId}. New quantity: {$consumable->qty}");
 
                 } elseif ($type === 'supplies') {
-                    // Fetch original supplies data with lock for update
-                    $supply = Supplies::lockForUpdate()->find($itemId);
+                    $supply = Supplies::with('details')->lockForUpdate()->find($itemId);
                     
                     if (!$supply) {
                         throw new \Exception("Supply item with ID {$itemId} not found");
                     }
 
-                    // Check if sufficient quantity is available
-                    if ($supply->qty < $requestQty) {
-                        throw new \Exception("Insufficient quantity for {$supply->material_description}. Available: {$supply->qty}, Requested: {$requestQty}");
+                    $selectedDetail = $supply->details->firstWhere('id', $detailId);
+                    
+                    if (!$selectedDetail) {
+                        throw new \Exception("Supply detail with ID {$detailId} not found");
                     }
 
-                    // Create supplies cart entry
+                    if ($selectedDetail->qty < $requestQty) {
+                        throw new \Exception("Insufficient quantity for {$supply->material_description} (Bin: {$selectedDetail->bin_location}). Available: {$selectedDetail->qty}, Requested: {$requestQty}");
+                    }
+
                     SuppliesCart::create([
                         'Itemcode' => $supply->itemcode,
                         'mat_description' => $supply->material_description,
-                        'Bin_location' => $supply->bin_location,
-                        'qty' => $supply->qty,
+                        'detailed_description' => $selectedDetail->detailed_description,
+                        'Bin_location' => $selectedDetail->bin_location,
+                        'qty' => $selectedDetail->qty,
                         'request_qty' => $requestQty,
-                        'uom' => $supply->uom,
-                        'minimum' => $supply->minimum,
-                        'maximum' => $supply->maximum,
-                        'price' => $supply->price,
+                        'uom' => $selectedDetail->uom,
+                        'minimum' => $selectedDetail->minimum,
+                        'maximum' => $selectedDetail->maximum,
+                        'price' => $selectedDetail->price,
                         'order_date' => $orderDate,
                         'employee_no' => $employeeNo,
                         'approver1' => $approver1,
@@ -304,11 +370,10 @@ class OrderMaterialController extends Controller
                         'remarks' => $itemRemarks,
                     ]);
 
-                    // Deduct the requested quantity from the supplies table
-                    $supply->qty = $supply->qty - $requestQty;
-                    $supply->save();
+                    $selectedDetail->qty = $selectedDetail->qty - $requestQty;
+                    $selectedDetail->save();
 
-                    \Log::info("Deducted {$requestQty} from supply ID {$itemId}. New quantity: {$supply->qty}");
+                    \Log::info("Deducted {$requestQty} from supply detail ID {$selectedDetail->id}. New quantity: {$selectedDetail->qty}");
                 }
             }
 

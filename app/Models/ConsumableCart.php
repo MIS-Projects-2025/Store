@@ -19,6 +19,13 @@ class ConsumableCart extends Model
 
     protected $keyType = 'int';
 
+    // MRS Status Constants (as integers)
+    const MRS_STATUS_PENDING = 0;
+    const MRS_STATUS_APPROVED = 1;
+    const MRS_STATUS_REJECTED = 2;
+    const MRS_STATUS_COMPLETED = 3;
+    const MRS_STATUS_CANCELLED = 4;
+
     // Mass assignable fields
     protected $fillable = [
         'Itemcode',
@@ -59,9 +66,4 @@ class ConsumableCart extends Model
 
     // Laravel timestamps
     public $timestamps = true;
-    
-    // Status constants for easy reference
-    const MRS_STATUS_PENDING = 0;
-    const MRS_STATUS_APPROVED = 1;
-    const MRS_STATUS_REJECTED = 2;
 }
