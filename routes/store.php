@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\OrderMaterialController;
 use App\Http\Middleware\AuthMiddleware;
 
 
@@ -12,6 +13,9 @@ Route::prefix($app_name)
     ->group(function () {
 
         // store Routes
-        Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+        Route::get('/dashboard', [OrderMaterialController::class, 'index'])->name('dashboard');
+
+        // ordering routes
+        Route::get('/order-material', [OrderMaterialController::class, 'index'])->name('order-material');
         
     });

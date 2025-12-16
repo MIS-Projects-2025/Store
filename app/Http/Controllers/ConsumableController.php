@@ -2,409 +2,386 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Consumable;
-use App\Models\ConsumableHistory;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
-use Maatwebsite\Excel\Facades\Excel;
-use App\Imports\ConsumablesImport;
-use Illuminate\Support\Facades\Storage;
+use App\Models\Consumable;
+use App\Models\ConsumableDetail;
+use App\Models\ConsumableHistory;
+use App\Models\ConsumableDetailHistory;
 
 class ConsumableController extends Controller
 {
-    /**
-     * Display a listing of consumables with pagination.
-     */
-public function index(Request $request)
-{
-    $perPage = $request->input('per_page', 10);
-    $search = $request->input('search', '');
-    
-    $query = Consumable::query()->orderBy('created_at', 'desc');
-    
-    // Apply search filter if provided
-    if ($search) {
-        $query->where(function($q) use ($search) {
-            $q->where('Itemcode', 'like', "%{$search}%")
-              ->orWhere('mat_description', 'like', "%{$search}%")
-              ->orWhere('Long_description', 'like', "%{$search}%")
-              ->orWhere('Bin_location', 'like', "%{$search}%")
-              ->orWhere('supplier', 'like', "%{$search}%")
-              ->orWhere('category', 'like', "%{$search}%");
-        });
-    }
-    
-    $consumables = $query->paginate($perPage)->withQueryString();
-    
-    return Inertia::render('Consumable', [
-        'consumables' => [
-            'data' => $consumables->items(),
-            'current_page' => $consumables->currentPage(),
-            'last_page' => $consumables->lastPage(),
-            'per_page' => $consumables->perPage(),
-            'total' => $consumables->total(),
-            'from' => $consumables->firstItem(),
-            'to' => $consumables->lastItem(),
-        ],
-        'filters' => [
-            'search' => $search,
-            'per_page' => $perPage
-        ]
-    ]);
-}
+    public function index(Request $request)
+    {
+        $search = $request->input('search', '');
+        $perPage = $request->input('per_page', 10);
 
-    /**
-     * Store a newly created consumable.
-     */
+        $query = Consumable::query()
+            ->select(
+                'consumable_id',
+                'material_description',
+                'category',
+                'uom'
+            );
+
+        if (!empty($search)) {
+            $query->where(function($q) use ($search) {
+                $q->where('material_description', 'LIKE', "%{$search}%")
+                  ->orWhere('category', 'LIKE', "%{$search}%")
+                  ->orWhere('uom', 'LIKE', "%{$search}%");
+            });
+        }
+
+        $consumableItems = $query->paginate($perPage);
+
+        return Inertia::render('Consumable', [
+            'tableData' => [
+                'data' => $consumableItems->items(),
+                'pagination' => [
+                    'from' => $consumableItems->firstItem(),
+                    'to' => $consumableItems->lastItem(),
+                    'total' => $consumableItems->total(),
+                    'current_page' => $consumableItems->currentPage(),
+                    'last_page' => $consumableItems->lastPage(),
+                    'per_page' => $consumableItems->perPage(),
+                ]
+            ],
+            'tableFilters' => [
+                'search' => $search,
+                'per_page' => $perPage
+            ]
+        ]);
+    }
+
+    public function show($id)
+    {
+        $consumableItem = Consumable::with('details')->findOrFail($id);
+        
+        if (request()->wantsJson() || request()->ajax()) {
+            return response()->json([
+                'consumableItem' => $consumableItem
+            ]);
+        }
+        
+        return Inertia::render('ConsumableView', [
+            'consumableItem' => $consumableItem
+        ]);
+    }
+
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'Itemcode' => 'required|string|max:255|unique:consumable,Itemcode',
-            'mat_description' => 'required|string|max:255',
-            'Long_description' => 'required|string',
-            'Bin_location' => 'required|string|max:255',
-            'supplier' => 'required|string|max:255',
-            'category' => 'required|string|max:255',
-            'qty' => 'required|numeric|min:0',
+            'material_description' => 'required|string|max:255',
+            'category' => 'required|string|max:100',
             'uom' => 'required|string|max:50',
-            'maximum' => 'required|numeric|min:0',
-            'minimum' => 'required|numeric|min:0',
+            'item_code' => 'required|string|max:100',
+            'detailed_description' => 'nullable|string',
+            'serial' => 'nullable|string|max:100',
+            'bin_location' => 'nullable|string|max:100',
+            'quantity' => 'required|numeric|min:0',
+            'max' => 'nullable|numeric|min:0',
+            'min' => 'nullable|numeric|min:0',
         ]);
 
-        // Get current user info from session
-        $user_id = session('emp_data.emp_id', 'unknown');
-        $user_name = session('emp_data.emp_name', 'Unknown User');
+        try {
+            DB::beginTransaction();
 
-        // Create the consumable item
-        $consumable = Consumable::create($validated);
+            $consumable = Consumable::create([
+                'material_description' => $validated['material_description'],
+                'category' => $validated['category'],
+                'uom' => $validated['uom'],
+            ]);
 
-        // Log the creation in history
-        ConsumableHistory::create([
-            'consumable_id' => $consumable->id,
-            'action' => 'created',
-            'user_id' => $user_id,
-            'user_name' => $user_name,
-            'item_code' => $consumable->Itemcode,
-            'changes' => ['New item created'],
-            'old_values' => null,
-            'new_values' => $validated,
-            'created_at' => now(),
-        ]);
+            ConsumableDetail::create([
+                'consumable_id' => $consumable->consumable_id,
+                'item_code' => $validated['item_code'],
+                'detailed_description' => $validated['detailed_description'],
+                'serial' => $validated['serial'],
+                'bin_location' => $validated['bin_location'],
+                'quantity' => $validated['quantity'],
+                'max' => $validated['max'],
+                'min' => $validated['min'],
+            ]);
 
-        return redirect()->back()->with('success', 'Consumable item added successfully.');
+            DB::commit();
+
+            return redirect()->route('consumable')->with('success', 'Consumable item created successfully');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('Failed to create consumable: ' . $e->getMessage());
+            return back()->withErrors(['error' => 'Failed to create consumable item: ' . $e->getMessage()]);
+        }
     }
 
-    /**
-     * Update the specified consumable.
-     */
-    public function update(Request $request, $id)
+    public function addDetail(Request $request)
     {
-        $consumable = Consumable::findOrFail($id);
-
-        // Get current values before update
-        $oldValues = $consumable->toArray();
-
         $validated = $request->validate([
-            'Itemcode' => 'required|string|max:255|unique:consumable,Itemcode,' . $id,
-            'mat_description' => 'required|string|max:255',
-            'Long_description' => 'required|string',
-            'Bin_location' => 'required|string|max:255',
-            'supplier' => 'required|string|max:255',
-            'category' => 'required|string|max:255',
-            'qty' => 'required|numeric|min:0',
-            'uom' => 'required|string|max:50',
-            'maximum' => 'required|numeric|min:0',
-            'minimum' => 'required|numeric|min:0',
+            'consumable_id' => 'required|integer|exists:consumables,consumable_id',
+            'item_code' => 'required|string|max:100',
+            'detailed_description' => 'nullable|string',
+            'serial' => 'nullable|string|max:100',
+            'bin_location' => 'nullable|string|max:100',
+            'quantity' => 'required|numeric|min:0',
+            'max' => 'nullable|numeric|min:0',
+            'min' => 'nullable|numeric|min:0',
         ]);
 
-        // Get current user info from session
-        $user_id = session('emp_data.emp_id', 'unknown');
-        $user_name = session('emp_data.emp_name', 'Unknown User');
+        try {
+            ConsumableDetail::create([
+                'consumable_id' => $validated['consumable_id'],
+                'item_code' => $validated['item_code'],
+                'detailed_description' => $validated['detailed_description'],
+                'serial' => $validated['serial'],
+                'bin_location' => $validated['bin_location'],
+                'quantity' => $validated['quantity'],
+                'max' => $validated['max'],
+                'min' => $validated['min'],
+            ]);
 
-        // Update the consumable item
-        $consumable->update($validated);
+            return back()->with('success', 'Detail added successfully');
 
-        // Get updated values
-        $newValues = $consumable->fresh()->toArray();
-
-        // Find what changed
-        $changes = [];
-        $changedFields = [];
-        
-        foreach ($validated as $field => $newValue) {
-            if (isset($oldValues[$field]) && $oldValues[$field] != $newValue) {
-                $oldValue = is_numeric($oldValues[$field]) ? 
-                    number_format($oldValues[$field], 2) : 
-                    $oldValues[$field];
-                $newValueFormatted = is_numeric($newValue) ? 
-                    number_format($newValue, 2) : 
-                    $newValue;
-                
-                $changes[] = "{$field}: {$oldValue} → {$newValueFormatted}";
-                $changedFields[$field] = [
-                    'old' => $oldValues[$field],
-                    'new' => $newValue
-                ];
-            }
+        } catch (\Exception $e) {
+            \Log::error('Failed to add detail: ' . $e->getMessage());
+            return back()->withErrors(['error' => 'Failed to add detail: ' . $e->getMessage()]);
         }
+    }
 
-        // Only log if there were changes
-        if (!empty($changes)) {
-            ConsumableHistory::create([
-                'consumable_id' => $consumable->id,
-                'action' => 'updated',
-                'user_id' => $user_id,
-                'user_name' => $user_name,
-                'item_code' => $consumable->Itemcode,
-                'changes' => $changes,
-                'old_values' => $oldValues,
-                'new_values' => $newValues,
-                'created_at' => now(),
+    public function bulkUpdateDetails(Request $request)
+    {
+        $validated = $request->validate([
+            'details' => 'required|array',
+            'details.*.id' => 'required|exists:consumable_details,id',
+            'details.*.item_code' => 'required|string|max:100',
+            'details.*.detailed_description' => 'nullable|string',
+            'details.*.serial' => 'nullable|string|max:100',
+            'details.*.bin_location' => 'nullable|string|max:100',
+            'details.*.quantity' => 'required|numeric|min:0',
+            'details.*.max' => 'nullable|numeric|min:0',
+            'details.*.min' => 'nullable|numeric|min:0',
+        ]);
+
+        try {
+            DB::beginTransaction();
+            
+            foreach ($validated['details'] as $detailData) {
+                $detail = ConsumableDetail::findOrFail($detailData['id']);
+                
+                $detail->item_code = $detailData['item_code'];
+                $detail->detailed_description = $detailData['detailed_description'];
+                $detail->serial = $detailData['serial'];
+                $detail->bin_location = $detailData['bin_location'];
+                $detail->quantity = $detailData['quantity'];
+                $detail->max = $detailData['max'];
+                $detail->min = $detailData['min'];
+                
+                $detail->save();
+            }
+            
+            DB::commit();
+            
+            return back()->with('success', 'Details updated successfully');
+            
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('Failed to bulk update details: ' . $e->getMessage());
+            return back()->withErrors([
+                'error' => 'Failed to update details: ' . $e->getMessage()
             ]);
         }
-
-        return redirect()->back()->with('success', 'Consumable item updated successfully.');
     }
 
-    /**
-     * Remove the specified consumable.
-     */
-    public function destroy($id)
+    public function update(Request $request, $id)
     {
-        $consumable = Consumable::findOrFail($id);
-
-        // Get current user info from session
-        $user_id = session('emp_data.emp_id', 'unknown');
-        $user_name = session('emp_data.emp_name', 'Unknown User');
-
-        // Store the values before deletion
-        $oldValues = $consumable->toArray();
-
-        // Log the deletion in history
-        ConsumableHistory::create([
-            'consumable_id' => $consumable->id,
-            'action' => 'deleted',
-            'user_id' => $user_id,
-            'user_name' => $user_name,
-            'item_code' => $consumable->Itemcode,
-            'changes' => ['Item deleted from system'],
-            'old_values' => $oldValues,
-            'new_values' => null,
-            'created_at' => now(),
+        $validated = $request->validate([
+            'material_description' => 'required|string|max:255',
+            'category' => 'required|string|max:100',
+            'uom' => 'required|string|max:50',
         ]);
 
-        // Delete the item
-        $consumable->delete();
+        try {
+            $consumable = Consumable::findOrFail($id);
+            $consumable->update([
+                'material_description' => $validated['material_description'],
+                'category' => $validated['category'],
+                'uom' => $validated['uom'],
+            ]);
 
-        return redirect()->back()->with('success', 'Consumable item deleted successfully.');
+            return back()->with('success', 'Item updated successfully');
+
+        } catch (\Exception $e) {
+            \Log::error('Failed to update consumable: ' . $e->getMessage());
+            return back()->withErrors(['error' => 'Failed to update item: ' . $e->getMessage()]);
+        }
     }
 
-    /**
-     * Add quantity to an existing consumable.
-     */
+    public function searchDetails(Request $request)
+    {
+        $search = $request->input('search', '');
+        
+        if (empty($search)) {
+            return response()->json([]);
+        }
+
+        $details = ConsumableDetail::with('consumable:consumable_id,material_description,category,uom')
+            ->where(function($q) use ($search) {
+                $q->where('item_code', 'LIKE', "%{$search}%")
+                  ->orWhere('detailed_description', 'LIKE', "%{$search}%");
+            })
+            ->select('id', 'consumable_id', 'item_code', 'detailed_description', 'quantity', 'bin_location')
+            ->limit(10)
+            ->get();
+
+        return response()->json($details);
+    }
+
     public function addQuantity(Request $request)
     {
         $validated = $request->validate([
-            'itemId' => 'required|exists:consumable,id',
-            'addAmount' => 'required|numeric|min:0.01'
+            'detail_id' => 'required|exists:consumable_details,id',
+            'quantity' => 'required|numeric|min:0.01',
         ]);
 
-        $consumable = Consumable::findOrFail($validated['itemId']);
-        
-        // Get current user info from session
-        $user_id = session('emp_data.emp_id', 'unknown');
-        $user_name = session('emp_data.emp_name', 'Unknown User');
+        try {
+            $detail = ConsumableDetail::findOrFail($validated['detail_id']);
+            $detail->quantity = $detail->quantity + $validated['quantity'];
+            $detail->save();
 
-        // Store old quantity
-        $oldQty = $consumable->qty;
-        
-        // Add the quantity
-        $consumable->qty = $consumable->qty + $validated['addAmount'];
-        $consumable->save();
+            return back()->with('success', 'Quantity added successfully');
 
-        // Log the quantity addition in history
-        ConsumableHistory::create([
-            'consumable_id' => $consumable->id,
-            'action' => 'quantity_added',
-            'user_id' => $user_id,
-            'user_name' => $user_name,
-            'item_code' => $consumable->Itemcode,
-            'changes' => [
-                "quantity: " . number_format($oldQty, 2) . " → " . number_format($consumable->qty, 2),
-                "added_amount: " . number_format($validated['addAmount'], 2)
-            ],
-            'old_values' => ['qty' => $oldQty],
-            'new_values' => ['qty' => $consumable->qty, 'added_amount' => $validated['addAmount']],
-            'created_at' => now(),
-        ]);
-
-        return redirect()->back()->with('success', 'Quantity added successfully.');
+        } catch (\Exception $e) {
+            \Log::error('Failed to add quantity: ' . $e->getMessage());
+            return back()->withErrors(['error' => 'Failed to add quantity: ' . $e->getMessage()]);
+        }
     }
 
-    /**
-     * Get consumable history for a specific item.
-     */
+    public function addQuantityBulk(Request $request)
+    {
+        $validated = $request->validate([
+            'items' => 'required|array|min:1',
+            'items.*.detail_id' => 'required|exists:consumable_details,id',
+            'items.*.quantity' => 'required|numeric|min:0.01',
+        ]);
+
+        try {
+            DB::beginTransaction();
+            
+            $updatedCount = 0;
+            $userName = session('emp_data.emp_name', 'Unknown User');
+            $userId = session('emp_data.id', null);
+            
+            foreach ($validated['items'] as $item) {
+                $detail = ConsumableDetail::findOrFail($item['detail_id']);
+                $oldQty = $detail->quantity;
+                $newQty = $oldQty + $item['quantity'];
+                
+                // Update quantity
+                $detail->quantity = $newQty;
+                $detail->save();
+                
+                // Manually create history record for quantity_added action
+                // We need to temporarily disable auto-logging by creating a separate history entry
+                ConsumableDetailHistory::create([
+                    'consumable_detail_id' => $detail->id,
+                    'consumable_id' => $detail->consumable_id,
+                    'action' => 'updated',
+                    'user_id' => $userId,
+                    'user_name' => $userName,
+                    'item_code' => $detail->item_code,
+                    'changes' => ['quantity'],
+                    'old_values' => ['quantity' => (string)$oldQty],
+                    'new_values' => ['quantity' => (string)$newQty],
+                ]);
+                
+                $updatedCount++;
+            }
+            
+            DB::commit();
+            
+            return redirect()->back()->with('success', "Successfully updated {$updatedCount} item(s)");
+            
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('Bulk quantity update failed: ' . $e->getMessage());
+            return redirect()->back()->withErrors(['error' => 'Failed to add quantities: ' . $e->getMessage()]);
+        }
+    }
+
+    public function destroy($id)
+    {
+        try {
+            DB::beginTransaction();
+            
+            $consumable = Consumable::findOrFail($id);
+            
+            ConsumableDetail::where('consumable_id', $id)->delete();
+            $consumable->delete();
+            
+            DB::commit();
+            
+            return back()->with('success', "Successfully deleted consumable item and all related details");
+            
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('Failed to delete consumable: ' . $e->getMessage());
+            return back()->withErrors(['error' => 'Failed to delete item: ' . $e->getMessage()]);
+        }
+    }
+
+public function destroyDetail($id)
+{
+    try {
+        $detail = ConsumableDetail::findOrFail($id);
+        $itemCode = $detail->item_code;
+        $detail->delete();
+        
+        return back()->with('success', "Successfully deleted detail {$itemCode}");
+        
+    } catch (\Exception $e) {
+        \Log::error('Failed to delete detail: ' . $e->getMessage());
+        return back()->withErrors(['error' => 'Failed to delete detail: ' . $e->getMessage()]);
+    }
+}
+
     public function getHistory($id)
     {
+        $consumable = Consumable::findOrFail($id);
+        
         $history = ConsumableHistory::where('consumable_id', $id)
             ->orderBy('created_at', 'desc')
             ->get();
 
-        return response()->json($history);
-    }
-
-    /**
-     * Get all consumable history.
-     */
-    public function getAllHistory(Request $request)
-    {
-        $history = ConsumableHistory::with('consumable')
-            ->orderBy('created_at', 'desc')
-            ->paginate(20);
+        if (request()->wantsJson() || request()->ajax()) {
+            return response()->json([
+                'history' => $history
+            ]);
+        }
 
         return Inertia::render('ConsumableHistory', [
+            'consumable' => $consumable,
             'history' => $history
         ]);
     }
 
-    /**
-     * Add quantities to multiple consumables at once.
-     */
-    public function batchAddQuantity(Request $request)
+    public function getDetailHistory($id)
     {
-        $validated = $request->validate([
-            'items' => 'required|array|min:1',
-            'items.*.itemId' => 'required|exists:consumable,id',
-            'items.*.addAmount' => 'required|numeric|min:0.01'
-        ]);
+        $detail = ConsumableDetail::with('consumable')->findOrFail($id);
+        
+        $history = ConsumableDetailHistory::where('consumable_detail_id', $id)
+            ->orderBy('created_at', 'desc')
+            ->get();
 
-        $user_id = session('emp_data.emp_id', 'unknown');
-        $user_name = session('emp_data.emp_name', 'Unknown User');
-
-        foreach ($validated['items'] as $item) {
-            $consumable = Consumable::findOrFail($item['itemId']);
-            $oldQty = $consumable->qty;
-            
-            $consumable->qty = $consumable->qty + $item['addAmount'];
-            $consumable->save();
-
-            ConsumableHistory::create([
-                'consumable_id' => $consumable->id,
-                'action' => 'quantity_added',
-                'user_id' => $user_id,
-                'user_name' => $user_name,
-                'item_code' => $consumable->Itemcode,
-                'changes' => [
-                    "quantity: " . number_format($oldQty, 2) . " → " . number_format($consumable->qty, 2),
-                    "added_amount: " . number_format($item['addAmount'], 2)
-                ],
-                'old_values' => ['qty' => $oldQty],
-                'new_values' => ['qty' => $consumable->qty, 'added_amount' => $item['addAmount']],
-                'created_at' => now(),
+        if (request()->wantsJson() || request()->ajax()) {
+            return response()->json([
+                'detail' => $detail,
+                'history' => $history
             ]);
         }
 
-        return redirect()->back()->with('success', count($validated['items']) . ' items updated successfully.');
-    }
-
-    /**
-     * Import consumables from Excel
-     */
-    public function import(Request $request)
-    {
-        $request->validate([
-            'file' => 'required|file|mimes:xlsx,xls,csv|max:10240', // 10MB max
-        ]);
-
-        try {
-            $file = $request->file('file');
-            $import = new ConsumablesImport();
-            
-            Excel::import($import, $file);
-            
-            $stats = $import->getStats();
-            
-            $message = "Import completed: {$stats['imported']} items imported";
-            
-            if ($stats['skipped'] > 0) {
-                $message .= ", {$stats['skipped']} items skipped";
-            }
-            
-            // Always redirect back to the consumable page
-            if (!empty($stats['errors'])) {
-                return redirect()->route('consumable')->with([
-                    'warning' => $message,
-                    'import_errors' => $stats['errors']
-                ]);
-            }
-            
-            return redirect()->route('consumable')->with('success', $message);
-            
-        } catch (\Exception $e) {
-            return redirect()->route('consumable')->with('error', 'Import failed: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * Download import template
-     */
-    public function downloadTemplate()
-    {
-        $headers = [
-            'Itemcode',
-            'mat_description',
-            'Long_description',
-            'Bin_location',
-            'supplier',
-            'category',
-            'qty',
-            'uom',
-            'minimum',
-            'maximum'
-        ];
-        
-        $sampleData = [
-            [
-                'ITEM001',
-                'Sample Item',
-                'This is a sample long description',
-                'A-01-01',
-                'Sample Supplier Inc.',
-                'Electronics',
-                100,
-                'pcs',
-                10,
-                500
-            ]
-        ];
-        
-        $filename = 'consumable_import_template.csv';
-        $handle = fopen('php://temp', 'r+');
-        
-        // Write headers
-        fputcsv($handle, $headers);
-        
-        // Write sample data
-        foreach ($sampleData as $row) {
-            fputcsv($handle, $row);
-        }
-        
-        rewind($handle);
-        $csv = stream_get_contents($handle);
-        fclose($handle);
-        
-        return response($csv, 200, [
-            'Content-Type' => 'text/csv',
-            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        return Inertia::render('ConsumableDetailHistory', [
+            'detail' => $detail,
+            'history' => $history
         ]);
     }
-
-    public function getAllForDropdown()
-{
-    $items = Consumable::select('id', 'Itemcode', 'mat_description', 'qty', 'uom', 'maximum', 'minimum', 'category')
-        ->orderBy('Itemcode')
-        ->get();
-    
-    return response()->json($items);
-}
 }
