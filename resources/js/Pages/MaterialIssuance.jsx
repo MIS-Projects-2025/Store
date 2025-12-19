@@ -1,849 +1,738 @@
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout";
 import { Head, usePage, router } from "@inertiajs/react";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
+import { Eye, RotateCcw, X } from "lucide-react";
 
-export default function MaterialIssuance({ consumableData, suppliesData, availableConsumables, availableSupplies }) {
-    const props = usePage().props;
-    
-    // Get employee data from session (same structure as OrderMaterial)
-    const empData = props.emp_data || {};
-    const empName = empData.emp_name || "Unknown User";
+/* -------------------- TABS -------------------- */
+const MAIN_TABS = [
+    { key: "consumable", label: "Consumable & Spare Parts" },
+    { key: "supplies", label: "Supplies" },
+    { key: "consigned", label: "Consigned" },
+];
+
+const SUB_TABS = [
+    "Pending",
+    "Preparing",
+    "For Pick Up",
+    "Delivered",
+    "Return",
+];
+
+export default function MaterialIssuance() {
+    const { consumables = [], supplies = [], consigned = [] } = usePage().props;
+
     const [activeMainTab, setActiveMainTab] = useState("consumable");
-    const [activeSubTab, setActiveSubTab] = useState(0);
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [selectedItem, setSelectedItem] = useState(null);
+    const [activeSubTab, setActiveSubTab] = useState("Pending");
+    const [selectedMRS, setSelectedMRS] = useState(null);
+    const [showModal, setShowModal] = useState(false);
     const [issuedQuantities, setIssuedQuantities] = useState({});
-    const [isReplacementModalOpen, setIsReplacementModalOpen] = useState(false);
-    const [itemToReplace, setItemToReplace] = useState(null);
-    const [replacementSearch, setReplacementSearch] = useState('');
-    const [pendingModalOpen, setPendingModalOpen] = useState(null);
-    const [selectedRadioItems, setSelectedRadioItems] = useState([]); // Track selected checkbox items
+    const [isProcessing, setIsProcessing] = useState(false);
+    const [showReplaceModal, setShowReplaceModal] = useState(false);
+    const [selectedItemForReplace, setSelectedItemForReplace] = useState(null);
+    const [availableReplacements, setAvailableReplacements] = useState([]);
 
-    const mainTabs = [
-        { id: "consumable", label: "Consumable" },
-        { id: "supplies", label: "Supplies" }
-    ];
-
-    const subTabs = [
-        { id: 0, label: "Pending" },
-        { id: 1, label: "Preparing" },
-        { id: 2, label: "For Pick Up" },
-        { id: 3, label: "Served" },
-        { id: 4, label: "Return Item" }
-    ];
-
-    // Effect to handle opening modal after status update
-    useEffect(() => {
-        if (pendingModalOpen) {
-            const sourceData = activeMainTab === "consumable" ? consumableData : suppliesData;
-            const item = sourceData.find(i => i.mrs_no === pendingModalOpen && i.mrs_status === 1);
-            
-            if (item) {
-                setSelectedItem(item);
-                setIsModalOpen(true);
-                
-                const items = getItemsByMrsNo(item.mrs_no);
-                const initialQuantities = {};
-                items.forEach(i => {
-                    initialQuantities[i.ID] = i.Issued_qty || '';
-                });
-                setIssuedQuantities(initialQuantities);
-                
-                setPendingModalOpen(null);
-            }
-        }
-    }, [consumableData, suppliesData, pendingModalOpen, activeMainTab]);
-
-const getFilteredData = () => {
-        const sourceData = activeMainTab === "consumable" ? consumableData : suppliesData;
-        
-        if (!sourceData || !Array.isArray(sourceData)) {
-            return [];
-        }
-
-        // Filter by status
-        let filtered = sourceData.filter(item => item.mrs_status === activeSubTab);
-        
-        // For tabs 1-3 (Preparing, For Pick Up, Served), filter by Issued_by matching current user
-        if (activeSubTab >= 1 && activeSubTab <= 3) {
-            filtered = filtered.filter(item => item.Issued_by === empName);
-        }
-        
-        return filtered;
-    };
-
-    const getDeduplicatedData = () => {
-        const filteredData = getFilteredData();
-        const mrsMap = new Map();
-
-        filteredData.forEach(item => {
-            if (!mrsMap.has(item.mrs_no)) {
-                mrsMap.set(item.mrs_no, item);
-            }
-        });
-
-        return Array.from(mrsMap.values());
-    };
-
-    const getItemsByMrsNo = (mrsNo) => {
-        const sourceData = activeMainTab === "consumable" ? consumableData : suppliesData;
-        
-        if (!sourceData || !Array.isArray(sourceData)) {
-            return [];
-        }
-
-        return sourceData.filter(item => item.mrs_no === mrsNo);
-    };
-
-    const getBadgeClass = (status) => {
-        const statusMap = {
-            0: "badge-warning",
-            1: "badge-info",
-            2: "badge-primary",
-            3: "badge-success",
-            4: "badge-error"
-        };
-        return statusMap[status] || "badge-ghost";
-    };
-
-    const getStatusLabel = (status) => {
-        const labelMap = {
-            0: "Pending",
-            1: "Preparing",
-            2: "For Pick Up",
-            3: "Served",
-            4: "Return Item"
-        };
-        return labelMap[status] || "Unknown";
-    };
-
-    const deduplicatedData = getDeduplicatedData();
-    const modalItems = useMemo(() => {
-        if (selectedItem) {
-            return getItemsByMrsNo(selectedItem.mrs_no);
-        }
+    /* -------------------- DATA SELECTOR -------------------- */
+    const baseData = useMemo(() => {
+        if (activeMainTab === "consumable") return consumables;
+        if (activeMainTab === "supplies") return supplies;
+        if (activeMainTab === "consigned") return consigned;
         return [];
-    }, [selectedItem, activeMainTab, consumableData, suppliesData]);
+    }, [activeMainTab, consumables, supplies, consigned]);
 
-    const handleViewClick = (item) => {
-        if (item.mrs_status === 0) {
-            setPendingModalOpen(item.mrs_no);
-            setActiveSubTab(1);
-            
-            const issuedBy = empName;
-            
-            router.post(route('material-issuance.update-status'), {
-                mrs_no: item.mrs_no,
-                type: activeMainTab,
-                issued_by: issuedBy
+    /* -------------------- FILTER ROWS BASED ON SUB TAB -------------------- */
+    const rowsForSubTab = useMemo(() => {
+        if (activeSubTab === "Return") {
+            return baseData.filter(row => {
+                return row.items?.some(item => item.mrs_status?.toLowerCase() === "return");
+            });
+        }
+        
+        if (activeSubTab === "Delivered") {
+            return baseData.filter(row => {
+                return row.items?.some(item => item.mrs_status?.toLowerCase() === "delivered");
+            });
+        }
+        
+        return baseData.filter(row => {
+            return row.mrs_status?.toLowerCase() === activeSubTab.toLowerCase();
+        });
+    }, [baseData, activeSubTab]);
+
+    /* -------------------- MODAL & UPDATE HANDLERS -------------------- */
+    const handleEyeClick = (row) => {
+        if (activeSubTab === "Pending") {
+            const routeName = activeMainTab === "consumable" 
+                ? 'material-issuance.update-consumable-status'
+                : activeMainTab === "supplies"
+                ? 'material-issuance.update-supplies-status'
+                : 'material-issuance.update-consigned-status';
+
+            router.post(route(routeName), {
+                mrs_no: row.mrs_no,
+                status: 'Preparing'
             }, {
-                preserveState: true,
                 preserveScroll: true,
                 onSuccess: () => {
-                    console.log('Status updated successfully');
-                },
-                onError: (errors) => {
-                    console.error('Error updating status:', errors);
-                    setPendingModalOpen(null);
-                    setActiveSubTab(0);
+                    setActiveSubTab("Preparing");
+                    setSelectedMRS({ ...row, mrs_status: 'Preparing' });
+                    setShowModal(true);
                 }
             });
         } else {
-            setSelectedItem(item);
-            setIsModalOpen(true);
-            setSelectedRadioItems([]); // Reset checkbox selection
-            
-            const items = getItemsByMrsNo(item.mrs_no);
-            const initialQuantities = {};
-            items.forEach(i => {
-                initialQuantities[i.ID] = i.Issued_qty || '';
-            });
-            setIssuedQuantities(initialQuantities);
+            openModal(row);
         }
     };
+
+    const openModal = (row) => {
+        setSelectedMRS(row);
+        setShowModal(true);
+        const quantities = {};
+        row.items?.forEach(item => {
+            quantities[item.id] = item.issued_quantity ?? item.issued_qty ?? 1;
+        });
+        setIssuedQuantities(quantities);
+    };
+
+    const modalItems = useMemo(() => {
+        if (!selectedMRS?.items) return [];
+        
+        if (activeSubTab === "Delivered") {
+            return selectedMRS.items.filter(item => 
+                item.mrs_status?.toLowerCase() !== "return"
+            );
+        }
+        
+        return selectedMRS.items;
+    }, [selectedMRS, activeSubTab]);
 
     const closeModal = () => {
-        setIsModalOpen(false);
-        setSelectedItem(null);
+        setShowModal(false);
+        setSelectedMRS(null);
         setIssuedQuantities({});
-        setSelectedRadioItems([]); // Reset checkbox selection
     };
 
-    const handleIssuedQtyChange = (itemId, value, maxQty) => {
-        const numValue = parseFloat(value);
-        if (value === '' || (numValue >= 0 && numValue <= maxQty)) {
-            setIssuedQuantities(prev => ({
-                ...prev,
-                [itemId]: value
-            }));
-        }
-    };
-
-    const allItemsHaveIssuedQty = useMemo(() => {
-        if (modalItems.length === 0) return false;
-        
-        return modalItems.every(item => {
-            const issuedQty = issuedQuantities[item.ID];
-            return issuedQty !== '' && issuedQty !== null && issuedQty !== undefined && parseFloat(issuedQty) > 0;
-        });
-    }, [modalItems, issuedQuantities]);
-
-    const handleIssueRequest = () => {
-        if (!allItemsHaveIssuedQty) {
-            alert('Please enter issued quantities for all items.');
-            return;
-        }
-
-        const confirmIssue = window.confirm(
-            `Are you sure you want to issue ${modalItems.length} item(s) for MRS No: ${selectedItem.mrs_no}?`
-        );
-
-        if (!confirmIssue) {
-            return;
-        }
-
-        const issueData = modalItems.map(item => ({
-            id: item.ID,
-            issued_qty: parseFloat(issuedQuantities[item.ID])
+    const handleIssuedQtyChange = (itemId, value) => {
+        setIssuedQuantities(prev => ({
+            ...prev,
+            [itemId]: value
         }));
+    };
 
-        router.post(route('material-issuance.issue-request'), {
-            mrs_no: selectedItem.mrs_no,
-            type: activeMainTab,
-            items: issueData
+    const isAllItemsHaveIssuedQty = useMemo(() => {
+        if (!selectedMRS?.items) return false;
+        return selectedMRS.items.every(item => {
+            const qty = issuedQuantities[item.id];
+            return qty && qty >= 1;
+        });
+    }, [selectedMRS, issuedQuantities]);
+
+    const handleProceed = () => {
+        if (!selectedMRS || !isAllItemsHaveIssuedQty) return;
+
+        setIsProcessing(true);
+
+        const routeName = activeMainTab === "consumable" 
+            ? 'material-issuance.update-issued-qty-consumable'
+            : activeMainTab === "supplies"
+            ? 'material-issuance.update-issued-qty-supplies'
+            : 'material-issuance.update-issued-qty-consigned';
+
+        router.post(route(routeName), {
+            mrs_no: selectedMRS.mrs_no,
+            items: selectedMRS.items.map(item => ({
+                id: item.id,
+                issued_qty: issuedQuantities[item.id]
+            }))
         }, {
-            preserveState: true,
             preserveScroll: true,
             onSuccess: () => {
-                alert('Items issued successfully!');
+                setActiveSubTab("For Pick Up");
                 closeModal();
             },
-            onError: (errors) => {
-                console.error('Error issuing items:', errors);
-                alert('Failed to issue items. Please try again.');
+            onFinish: () => {
+                setIsProcessing(false);
             }
         });
     };
 
-    const handlePickedUp = (item) => {
-        const confirmPickup = window.confirm(
-            `Mark MRS No: ${item.mrs_no} as Picked Up?`
-        );
+    const handleMarkAsDelivered = () => {
+        if (!selectedMRS) return;
 
-        if (!confirmPickup) {
-            return;
-        }
+        setIsProcessing(true);
 
-        router.post(route('material-issuance.picked-up'), {
-            mrs_no: item.mrs_no,
-            type: activeMainTab
+        const routeName = activeMainTab === "consumable" 
+            ? 'material-issuance.mark-delivered-consumable'
+            : activeMainTab === "supplies"
+            ? 'material-issuance.mark-delivered-supplies'
+            : 'material-issuance.mark-delivered-consigned';
+
+        router.post(route(routeName), {
+            mrs_no: selectedMRS.mrs_no
         }, {
-            preserveState: true,
             preserveScroll: true,
             onSuccess: () => {
-                alert('Items marked as Picked Up successfully!');
+                setActiveSubTab("Delivered");
+                closeModal();
             },
-            onError: (errors) => {
-                console.error('Error updating status:', errors);
-                alert('Failed to update status. Please try again.');
+            onFinish: () => {
+                setIsProcessing(false);
             }
         });
     };
 
     const handleReturnItem = (item) => {
-        const confirmReturn = window.confirm(
-            `Mark item "${item.mat_description}" as Return Item?`
-        );
+        if (!selectedMRS) return;
 
-        if (!confirmReturn) {
+        if (!confirm('Are you sure you want to return this item? The inventory will be updated.')) {
             return;
         }
 
-        router.post(route('material-issuance.return-item'), {
-            cart_item_id: item.ID,
-            type: activeMainTab,
-            mrs_no: selectedItem.mrs_no
+        setIsProcessing(true);
+
+        const routeName = activeMainTab === "consumable" 
+            ? 'material-issuance.return-consumable-item'
+            : activeMainTab === "supplies"
+            ? 'material-issuance.return-supplies-item'
+            : 'material-issuance.return-consigned-item';
+
+        router.post(route(routeName), {
+            item_id: item.id,
+            mrs_no: selectedMRS.mrs_no
         }, {
-            preserveState: true,
             preserveScroll: true,
-            onSuccess: () => {
-                alert('Item marked for return successfully!');
-                const items = getItemsByMrsNo(selectedItem.mrs_no);
-                if (items.every(i => i.mrs_status === 4)) {
-                    closeModal();
+            onSuccess: (page) => {
+                const updatedData = activeMainTab === "consumable" 
+                    ? page.props.consumables 
+                    : activeMainTab === "supplies"
+                    ? page.props.supplies
+                    : page.props.consigned;
+                
+                const updatedMRS = updatedData.find(mrs => mrs.mrs_no === selectedMRS.mrs_no);
+                
+                if (updatedMRS) {
+                    setSelectedMRS(updatedMRS);
                 }
             },
-            onError: (errors) => {
-                console.error('Error marking item for return:', errors);
-                alert('Failed to mark item for return. Please try again.');
+            onFinish: () => {
+                setIsProcessing(false);
             }
         });
     };
 
-    const handleBulkReturn = () => {
-    const selectedItems = modalItems.filter(item => selectedRadioItems.includes(item.ID));
-    const itemDescriptions = selectedItems.map(item => item.mat_description).join(', ');
-    
-    const confirmReturn = window.confirm(
-        `Mark ${selectedRadioItems.length} item(s) as Return Item?\n\nItems: ${itemDescriptions}`
-    );
-
-    if (!confirmReturn) {
-        return;
-    }
-
-    router.post(route('material-issuance.bulk-return-items'), {
-        cart_item_ids: selectedRadioItems,
-        type: activeMainTab,
-        mrs_no: selectedItem.mrs_no
-    }, {
-        preserveState: true,
-        preserveScroll: true,
-        onSuccess: () => {
-            alert(`${selectedRadioItems.length} item(s) marked for return successfully!`);
-            setSelectedRadioItems([]);
-            const items = getItemsByMrsNo(selectedItem.mrs_no);
-            if (items.every(i => i.mrs_status === 4)) {
-                closeModal();
-            }
-        },
-        onError: (errors) => {
-            console.error('Error marking items for return:', errors);
-            alert('Failed to mark items for return. Please try again.');
-        }
-    });
-};
-
-    const handleReplaceClick = (item) => {
-        setItemToReplace(item);
-        setIsReplacementModalOpen(true);
-        setReplacementSearch('');
-    };
-
-    const closeReplacementModal = () => {
-        setIsReplacementModalOpen(false);
-        setItemToReplace(null);
-        setReplacementSearch('');
-    };
-
-    const replacementItems = useMemo(() => {
-        return activeMainTab === "consumable" ? (availableConsumables || []) : (availableSupplies || []);
-    }, [activeMainTab, availableConsumables, availableSupplies]);
-
-    const filteredReplacementItems = useMemo(() => {
-        if (!replacementSearch) return replacementItems;
+    const handleReplaceItem = (item) => {
+        setSelectedItemForReplace(item);
         
-        return replacementItems.filter(item => 
-            Object.values(item).some(value => 
-                value && value.toString().toLowerCase().includes(replacementSearch.toLowerCase())
-            )
-        );
-    }, [replacementItems, replacementSearch]);
+        const routeName = activeMainTab === "consumable" 
+            ? 'material-issuance.get-replacement-items-consumable'
+            : activeMainTab === "supplies"
+            ? 'material-issuance.get-replacement-items-supplies'
+            : 'material-issuance.get-replacement-items-consigned';
 
-const handleSelectReplacement = (replacementItem) => {
-    const confirmReplace = window.confirm(
-        `Replace "${itemToReplace.mat_description}" with "${replacementItem.mat_description || replacementItem.material_description}"?`
-    );
-
-    if (!confirmReplace) {
-        return;
-    }
-
-    // For consumables, send consumable.id, for supplies send detail_id
-    const replacementItemId = activeMainTab === "consumable" 
-        ? replacementItem.id 
-        : replacementItem.detail_id || replacementItem.id;
-
-    router.post(route('material-issuance.replace-item'), {
-        cart_item_id: itemToReplace.ID,
-        replacement_item_id: replacementItemId,
-        type: activeMainTab,
-        mrs_no: selectedItem.mrs_no,
-        is_supply_detail: activeMainTab === "supplies" // Add flag to identify supply detail
-    }, {
-        preserveState: true,
-        preserveScroll: true,
-        onSuccess: () => {
-            alert('Item replaced successfully!');
-            closeReplacementModal();
-            const items = getItemsByMrsNo(selectedItem.mrs_no);
-            const initialQuantities = {};
-            items.forEach(i => {
-                initialQuantities[i.ID] = i.Issued_qty || '';
-            });
-            setIssuedQuantities(initialQuantities);
-        },
-        onError: (errors) => {
-            console.error('Error replacing item:', errors);
-            alert('Failed to replace item. Please try again.');
-        }
-    });
-};
-
-    // Handle checkbox selection
-    const handleCheckboxSelect = (itemId) => {
-        setSelectedRadioItems(prev => {
-            if (prev.includes(itemId)) {
-                return prev.filter(id => id !== itemId);
-            } else {
-                return [...prev, itemId];
+        // Remove material_description parameter to get all items
+        router.get(route(routeName), {}, {
+            preserveScroll: true,
+            preserveState: true,
+            onSuccess: (page) => {
+                setAvailableReplacements(page.props.replacementItems || []);
+                setShowReplaceModal(true);
             }
         });
     };
 
-    // Handle select all checkbox
-    const handleSelectAll = () => {
-        if (selectedRadioItems.length === modalItems.length) {
-            setSelectedRadioItems([]);
-        } else {
-            setSelectedRadioItems(modalItems.map(item => item.ID));
+    const closeReplaceModal = () => {
+        setShowReplaceModal(false);
+        setSelectedItemForReplace(null);
+        setAvailableReplacements([]);
+    };
+
+    const handleConfirmReplacement = (replacementItem) => {
+        if (!selectedItemForReplace || !selectedMRS) return;
+
+        if (!confirm('Are you sure you want to replace this item?')) {
+            return;
         }
+
+        setIsProcessing(true);
+
+        const routeName = activeMainTab === "consumable" 
+            ? 'material-issuance.replace-item-consumable'
+            : activeMainTab === "supplies"
+            ? 'material-issuance.replace-item-supplies'
+            : 'material-issuance.replace-item-consigned';
+
+        const payload = {
+            mrs_no: selectedMRS.mrs_no,
+            old_item_id: selectedItemForReplace.id,
+            new_item_code: replacementItem.item_code,
+        };
+
+        // Add type-specific fields
+        if (activeMainTab === "consumable") {
+            payload.new_serial = replacementItem.serial;
+        } else if (activeMainTab === "consigned") {
+            payload.new_supplier = replacementItem.supplier;
+        }
+
+        router.post(route(routeName), payload, {
+            preserveScroll: true,
+            preserveState: false, // Changed to false to force data refresh
+            onSuccess: (page) => {
+                const updatedData = activeMainTab === "consumable" 
+                    ? page.props.consumables 
+                    : activeMainTab === "supplies"
+                    ? page.props.supplies
+                    : page.props.consigned;
+                
+                const updatedMRS = updatedData.find(mrs => mrs.mrs_no === selectedMRS.mrs_no);
+                
+                if (updatedMRS) {
+                    setSelectedMRS(updatedMRS);
+                    
+                    // Update issued quantities for the replaced item
+                    const updatedItem = updatedMRS.items.find(item => item.id === selectedItemForReplace.id);
+                    if (updatedItem) {
+                        setIssuedQuantities(prev => ({
+                            ...prev,
+                            [updatedItem.id]: updatedItem.issued_quantity ?? updatedItem.issued_qty ?? 1
+                        }));
+                    }
+                }
+                
+                closeReplaceModal();
+            },
+            onFinish: () => {
+                setIsProcessing(false);
+            }
+        });
     };
 
     return (
         <AuthenticatedLayout>
             <Head title="Material Issuance" />
-            
-            <div className="p-4">
-                <h1 className="text-xl font-semibold mb-2">Material Issuance</h1>
+            <h1 className="text-2xl font-bold mb-6">Material Issuance</h1>
 
-                <div className="card bg-base-100 shadow-xl">
-                    <div className="card-body">
-                        {/* Main Tabs */}
-                        <div className="tabs tabs-boxed mb-4 bg-primary/10">
-                            {mainTabs.map((tab) => (
-                                <a
-                                    key={tab.id}
-                                    className={`tab tab-lg font-semibold ${
-                                        activeMainTab === tab.id ? "tab-active" : ""
-                                    }`}
-                                    onClick={() => setActiveMainTab(tab.id)}
-                                >
-                                    {tab.label}
-                                </a>
-                            ))}
-                        </div>
-
-                        {/* Sub Tabs */}
-                        <div className="tabs tabs-boxed mb-4">
-                            {subTabs.map((tab) => (
-                                <a
-                                    key={tab.id}
-                                    className={`tab ${
-                                        activeSubTab === tab.id ? "tab-active" : ""
-                                    }`}
-                                    onClick={() => setActiveSubTab(tab.id)}
-                                >
-                                    {tab.label}
-                                </a>
-                            ))}
-                        </div>
-
-                        {/* Table Content */}
-                        <div className="mt-4">
-                            <div className="overflow-x-auto">
-                                <table className="table table-zebra w-full">
-                                    <thead>
-                                        <tr>
-                                            {activeSubTab === 4 ? (
-                                                <>
-                                                    <th>MRS No</th>
-                                                    <th>Item Code</th>
-                                                    <th>Material Description</th>
-                                                    {activeMainTab === "supplies" && <th>Detailed Description</th>}
-                                                    {activeMainTab === "consumable" && <th>Detailed Description</th>}
-                                                    <th>Quantity</th>
-                                                    <th>Request Quantity</th>
-                                                    <th>UOM</th>
-                                                    <th>Remarks</th>
-                                                    <th>Issued Quantity</th>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <th>Date Order</th>
-                                                    <th>MRS No</th>
-                                                    <th>Requestor Name</th>
-                                                    <th>Status</th>
-                                                    <th>Action</th>
-                                                </>
-                                            )}
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {activeSubTab === 4 ? (
-                                            // Display all returned items directly
-                                            getFilteredData().length > 0 ? (
-                                                getFilteredData().map((item) => (
-                                                    <tr key={item.ID}>
-                                                        <td>{item.mrs_no}</td>
-                                                        <td>{item.Itemcode}</td>
-                                                        <td>{item.mat_description}</td>
-                                                        {activeMainTab === "consumable" && (
-                                                            <td>{item.Long_description || 'N/A'}</td>
-                                                        )}
-                                                        {activeMainTab === "supplies" && (
-                                                            <td>{item.detailed_description || 'N/A'}</td>
-                                                        )}
-                                                        <td>{item.qty || 0}</td>
-                                                        <td>{item.request_qty}</td>
-                                                        <td>{item.uom}</td>
-                                                        <td className="text-sm">{item.remarks || 'N/A'}</td>
-                                                        <td className="font-medium">{item.Issued_qty || '0'}</td>
-                                                    </tr>
-                                                ))
-                                            ) : (
-                                                <tr>
-                                                    <td colSpan={activeMainTab === "consumable" ? "9" : "8"} className="text-center text-gray-500 py-4">
-                                                        No data available
-                                                    </td>
-                                                </tr>
-                                            )
-                                        ) : (
-                                            // Display deduplicated MRS for other tabs
-                                            deduplicatedData.length > 0 ? (
-                                                deduplicatedData.map((item) => (
-                                                    <tr key={item.ID}>
-                                                        <td>{new Date(item.order_date).toLocaleDateString()}</td>
-                                                        <td>{item.mrs_no}</td>
-                                                        <td>{item.requestor_name || 'N/A'}</td>
-                                                        <td>
-                                                            <span className={`badge ${getBadgeClass(item.mrs_status)}`}>
-                                                                {getStatusLabel(item.mrs_status)}
-                                                            </span>
-                                                        </td>
-                                                        <td>
-                                                            {activeSubTab === 2 ? (
-                                                                <button 
-                                                                    className="btn btn-sm btn-success"
-                                                                    onClick={() => handlePickedUp(item)}
-                                                                >
-                                                                    Picked Up
-                                                                </button>
-                                                            ) : (
-                                                                <button 
-                                                                    className="btn btn-sm btn-primary"
-                                                                    onClick={() => handleViewClick(item)}
-                                                                >
-                                                                    View
-                                                                </button>
-                                                            )}
-                                                        </td>
-                                                    </tr>
-                                                ))
-                                            ) : (
-                                                <tr>
-                                                    <td colSpan="5" className="text-center text-gray-500 py-4">
-                                                        No data available
-                                                    </td>
-                                                </tr>
-                                            )
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-
-                        {/* Info Badge */}
-                        <div className="mt-4 text-sm text-gray-600">
-                            Showing: <span className="font-semibold capitalize">{activeMainTab}</span> → 
-                            <span className="font-semibold ml-1">{getStatusLabel(activeSubTab)}</span>
-                            <span className="ml-2">
-                                ({activeSubTab === 4 ? `${getFilteredData().length} items` : `${deduplicatedData.length} unique MRS`})
-                            </span>
-                        </div>
-                    </div>
-                </div>
+            {/* MAIN TABS */}
+            <div className="tabs tabs-boxed mb-6">
+                {MAIN_TABS.map(tab => (
+                    <a
+                        key={tab.key}
+                        className={`tab ${activeMainTab === tab.key ? "tab-active" : ""}`}
+                        onClick={() => {
+                            setActiveMainTab(tab.key);
+                            setActiveSubTab("Pending");
+                        }}
+                    >
+                        {tab.label}
+                    </a>
+                ))}
             </div>
 
-            {/* Modal with all items for selected MRS No */}
-            {isModalOpen && (
-                <dialog className="modal modal-open">
-                    <div className="modal-box max-w-7xl">
-                        <h3 className="font-bold text-lg mb-4">MRS Details</h3>
-                        
-                        {selectedItem && (
-                            <div>
-                                {/* Header Card */}
-                                <div className="card bg-base-200 shadow-md mb-4">
-                                    <div className="card-body p-4">
-                                        <div className="grid grid-cols-4 gap-4">
-                                            <div>
-                                                <label className="font-semibold text-sm text-gray-600">MRS No:</label>
-                                                <p className="text-base mt-1">{selectedItem.mrs_no}</p>
-                                            </div>
-                                            
-                                            <div>
-                                                <label className="font-semibold text-sm text-gray-600">Requestor Name:</label>
-                                                <p className="text-base mt-1">{selectedItem.requestor_name}</p>
-                                            </div>
-                                            
-                                            <div>
-                                                <label className="font-semibold text-sm text-gray-600">Department:</label>
-                                                <p className="text-base mt-1">{selectedItem.department || 'N/A'}</p>
-                                            </div>
-                                            
-                                            <div>
-                                                <label className="font-semibold text-sm text-gray-600">Date Order:</label>
-                                                <p className="text-base mt-1">
-                                                    {new Date(selectedItem.order_date).toLocaleDateString()}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
+            {/* SUB TABS */}
+            <div className="tabs tabs-bordered mb-6">
+                {SUB_TABS.map(sub => (
+                    <a
+                        key={sub}
+                        className={`tab ${activeSubTab === sub ? "tab-active" : ""}`}
+                        onClick={() => setActiveSubTab(sub)}
+                    >
+                        {sub}
+                    </a>
+                ))}
+            </div>
 
-                                {/* Data Table */}
-                                <div className="overflow-x-auto">
-                                    <table className="table table-zebra w-full">
-                                        <thead>
-                                            <tr>
-                                                {activeSubTab === 3 && (
-                                                    <th>
-                                                        <input 
-                                                            type="checkbox" 
-                                                            className="checkbox checkbox-primary"
-                                                            checked={selectedRadioItems.length === modalItems.length && modalItems.length > 0}
-                                                            onChange={handleSelectAll}
-                                                        />
-                                                    </th>
-                                                )}
-                                                <th>Item Code</th>
-                                                <th>Material Description</th>
-                                                {activeMainTab === "supplies" && <th>Detailed Description</th>}
-                                                {activeMainTab === "consumable" && <th>Detailed Description</th>}
-                                                <th>Quantity</th>
-                                                <th>Request Quantity</th>
-                                                <th>UOM</th>
-                                                {activeSubTab !== 0 && <th>Remarks</th>}
-                                                <th>Issued Quantity</th>
-                                                <th>{activeSubTab === 0 ? "Remarks" : "Action"}</th>
-                                            </tr>
-                                        </thead>
-                                            <tbody>
-                                                {modalItems.length > 0 ? (
-                                                    modalItems.map((item, index) => (
-                                                        <tr key={`${item.ID}-${index}`}>
-                                                            {activeSubTab === 3 && (
-                                                                <td>
-                                                                    <input 
-                                                                        type="checkbox" 
-                                                                        className="checkbox checkbox-primary"
-                                                                        checked={selectedRadioItems.includes(item.ID)}
-                                                                        onChange={() => handleCheckboxSelect(item.ID)}
-                                                                        disabled={item.mrs_status === 4}
-                                                                    />
-                                                                </td>
-                                                            )}
-                                                            <td>{item.Itemcode}</td>
-                                                            <td>{item.mat_description}</td>
-                                                            {activeMainTab === "consumable" && (
-                                                                <td>{item.Long_description || 'N/A'}</td>
-                                                            )}
-                                                            {activeMainTab === "supplies" && (
-                                                                <td>{item.detailed_description || 'N/A'}</td>
-                                                            )}
-                                                            <td>{item.qty || 0}</td>
-                                                            <td>{item.request_qty}</td>
-                                                            <td>{item.uom}</td>
-                                                            {activeSubTab !== 0 && (
-                                                                <td className="text-sm">{item.remarks || 'N/A'}</td>
-                                                            )}
-                                                            <td>
-                                                                {activeSubTab === 3 || activeSubTab === 4 ? (
-                                                                    <span className="font-medium">{item.Issued_qty || '0'}</span>
-                                                                ) : (
-                                                                    <input
-                                                                        type="number"
-                                                                        className="input input-bordered input-sm w-24"
-                                                                        value={issuedQuantities[item.ID] || ''}
-                                                                        onChange={(e) => handleIssuedQtyChange(item.ID, e.target.value, item.request_qty)}
-                                                                        placeholder="0"
-                                                                        min="0"
-                                                                        max={item.request_qty}
-                                                                    />
-                                                                )}
-                                                            </td>
-                                                            <td>
-                                                                {activeSubTab === 0 ? (
-                                                                    <span className="text-sm">{item.remarks || 'N/A'}</span>
-                                                                ) : activeSubTab === 3 ? (
-                                                                    <button 
-                                                                        className="btn btn-xs btn-error"
-                                                                        onClick={() => handleReturnItem(item)}
-                                                                        disabled={item.mrs_status === 4}
-                                                                    >
-                                                                        {item.mrs_status === 4 ? 'Returned' : 'Return'}
-                                                                    </button>
-                                                                ) : activeSubTab === 4 ? (
-                                                                    <span className="badge badge-error">Returned</span>
-                                                                ) : (
-                                                                    <button 
-                                                                        className="btn btn-xs btn-accent"
-                                                                        onClick={() => handleReplaceClick(item)}
-                                                                    >
-                                                                        Replace
-                                                                    </button>
-                                                                )}
-                                                            </td>
-                                                        </tr>
-                                                    ))
-                                                ) : (
-                                                    <tr>
-                                                        <td colSpan={activeMainTab === "consumable" ? (activeSubTab === 3 ? "10" : activeSubTab === 0 ? "8" : "9") : (activeSubTab === 3 ? "9" : activeSubTab === 0 ? "7" : "8")} className="text-center text-gray-500 py-4">
-                                                            No items found
-                                                        </td>
-                                                    </tr>
-                                                )}
-                                            </tbody>
-                                    </table>
-                                </div>
+            {/* ================= STATUS TABLES ================= */}
+            {activeSubTab !== "Return" && (
+                <div className="card bg-base-100 shadow">
+                    <div className="overflow-x-auto">
+                        <table className="table table-zebra">
+                            <thead>
+                                <tr>
+                                    <th>Date Order</th>
+                                    <th>MRS No</th>
+                                    <th>{activeMainTab === "consigned" ? "Station" : "Requestor"}</th>
+                                    <th>Status</th>
+                                    <th className="text-center">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {rowsForSubTab.length === 0 && (
+                                    <tr>
+                                        <td colSpan="5" className="text-center text-gray-400">
+                                            No approved records for this status
+                                        </td>
+                                    </tr>
+                                )}
 
-                                <div className="mt-4 text-sm text-gray-600">
-                                    Total Items: <span className="font-semibold">{modalItems.length}</span>
-                                    {activeSubTab === 3 && selectedRadioItems.length > 0 && (
-                                        <span className="ml-4 text-primary font-semibold">
-                                            • {selectedRadioItems.length} item(s) selected for action
-                                        </span>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-
-                        <div className="modal-action">
-                            <button className="btn" onClick={closeModal}>Close</button>
-                            {activeSubTab === 1 && allItemsHaveIssuedQty && (
-                                <button 
-                                    className="btn btn-success gap-2"
-                                    onClick={handleIssueRequest}
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                    </svg>
-                                    Issue Request
-                                </button>
-                            )}
-                            {activeSubTab === 3 && selectedRadioItems.length > 0 && (
-                                <button 
-                                    className="btn btn-error gap-2"
-                                    onClick={handleBulkReturn}
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 15v-1a4 4 0 00-4-4H8m0 0l3 3m-3-3l3-3m9 14V5a2 2 0 00-2-2H6a2 2 0 00-2 2v16l4-2 4 2 4-2 4 2z" />
-                                    </svg>
-                                    Return Selected Items ({selectedRadioItems.length})
-                                </button>
-                            )}
-                        </div>
+                                {rowsForSubTab.map(row => (
+                                    <tr key={row.id}>
+                                        <td>{row.order_date}</td>
+                                        <td>{row.mrs_no}</td>
+                                        <td>{row.emp_name}</td>
+                                        <td>
+                                            <span className="badge badge-info">
+                                                {row.mrs_status}
+                                            </span>
+                                        </td>
+                                        <td className="text-center">
+                                            <button 
+                                                className="btn btn-sm btn-ghost" 
+                                                title={activeSubTab === "Pending" ? "Move to Preparing" : "View"}
+                                                onClick={() => handleEyeClick(row)}
+                                            >
+                                                <Eye className="w-4 h-4" />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
                     </div>
-                    <form method="dialog" className="modal-backdrop" onClick={closeModal}>
-                        <button>close</button>
-                    </form>
-                </dialog>
+                </div>
             )}
 
-            {/* Replacement Modal */}
-            {isReplacementModalOpen && (
-                <dialog className="modal modal-open">
-                    <div className="modal-box max-w-6xl">
-                        <h3 className="font-bold text-lg mb-4">Select Item for Replacement</h3>
-                        
-                        {itemToReplace && (
-                            <div className="alert alert-info mb-4">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" className="stroke-current shrink-0 w-6 h-6">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                                </svg>
-                                <div>
-                                    <div className="font-bold">Replacing:</div>
-                                    <div className="text-sm">
-                                        {itemToReplace.Itemcode} - {itemToReplace.mat_description}
-                                    </div>
-                                </div>
-                            </div>
-                        )}
+            {/* ================= RETURN TABLE ================= */}
+            {activeSubTab === "Return" && (
+                <div className="card bg-base-100 shadow">
+                    <div className="overflow-x-auto">
+                        <table className="table table-zebra">
+                            <thead>
+                                <tr>
+                                    <th>MRS No</th>
+                                    <th>Item Code</th>
+                                    <th>Description</th>
+                                    <th>Detailed Description</th>
+                                    {activeMainTab === "consumable" && <th>Serial</th>}
+                                    {activeMainTab === "consigned" && <th>Supplier</th>}
+                                    <th>Quantity</th>
+                                    <th>Requested Qty</th>
+                                    <th>Issued Qty</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {rowsForSubTab.length === 0 && (
+                                    <tr>
+                                        <td colSpan={activeMainTab === "supplies" ? "8" : "9"} className="text-center text-gray-400">
+                                            No returned items
+                                        </td>
+                                    </tr>
+                                )}
 
-                        {/* Search Bar */}
-                        <div className="form-control mb-4">
-                            <input 
-                                type="text" 
-                                placeholder="Search replacement items..." 
-                                className="input input-bordered w-full" 
-                                value={replacementSearch}
-                                onChange={(e) => setReplacementSearch(e.target.value)}
-                            />
+                                {rowsForSubTab.map(row => 
+                                    row.items?.filter(item => item.mrs_status?.toLowerCase() === "return").map(item => (
+                                        <tr key={item.id}>
+                                            <td>{row.mrs_no}</td>
+                                            <td>{item.itemCode}</td>
+                                            <td>{item.material_description}</td>
+                                            <td>{item.detailed_description}</td>
+                                            {activeMainTab === "consumable" && (
+                                                <td>{item.serial ?? "N/A"}</td>
+                                            )}
+                                            {activeMainTab === "consigned" && (
+                                                <td>{item.supplier ?? "N/A"}</td>
+                                            )}
+                                            <td>{item.quantity}</td>
+                                            <td>{item.request_quantity ?? item.request_qty}</td>
+                                            <td>{item.issued_quantity ?? item.issued_qty}</td>
+                                            <td>
+                                                <span className="badge badge-warning">
+                                                    Returned
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+
+            {/* ================= MODAL FOR VIEWING ITEMS ================= */}
+            {showModal && selectedMRS && (
+                <div className="modal modal-open">
+                    <div className="modal-box max-w-5xl">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="font-bold text-lg">
+                                MRS Details - {selectedMRS.mrs_no}
+                            </h3>
+                            <button 
+                                className="btn btn-sm btn-circle btn-ghost"
+                                onClick={closeModal}
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
                         </div>
 
-                        {/* Replacement Items Table */}
-                        <div className="overflow-x-auto max-h-96">
-                            <table className="table table-zebra w-full">
-<thead className="sticky top-0 bg-base-200">
-    <tr>
-        <th>Item Code</th>
-        <th>Material Description</th>
-        {activeMainTab === "consumable" && <th>Detailed Description</th>}
-        {activeMainTab === "supplies" && <th>Detailed Description</th>}
-        <th>Supplier</th>
-        <th className="text-center">Available Qty</th>
-        <th className="text-center">UOM</th>
-        <th className="text-center">Action</th>
-    </tr>
-</thead>
-<tbody>
-    {filteredReplacementItems.length > 0 ? (
-        filteredReplacementItems.map((item) => (
-            <tr key={activeMainTab === "consumable" ? item.id : `${item.id}-${item.detail_id}`}>
-                <td className="font-medium">
-                    {activeMainTab === "consumable" ? item.itemcode : item.itemcode}
-                </td>
-                <td>{activeMainTab === "consumable" ? item.mat_description : item.material_description}</td>
-                {activeMainTab === "consumable" ? (
-                    <td>{item.Long_description || 'N/A'}</td>
-                ) : (
-                    <td>{item.detailed_description || 'N/A'}</td>
-                )}
-                {activeMainTab === "supplies" && (
-                    <td>{item.detailed_description || 'N/A'}</td>
-                 )}
-                <td>{item.supplier || 'N/A'}</td>
-                <td className="text-center">
-                    {item.qty <= 0 ? (
-                        <span className="badge badge-error">Out of Stock</span>
-                    ) : (
-                        <span className={item.qty <= 10 ? 'text-warning font-semibold' : ''}>
-                            {item.qty}
-                        </span>
-                    )}
-                </td>
-                <td className="text-center">{item.uom}</td>
-                <td className="text-center">
-                    <button 
-                        className="btn btn-sm btn-primary"
-                        onClick={() => handleSelectReplacement(item)}
-                        disabled={item.qty <= 0}
-                    >
-                        Select
-                    </button>
-                </td>
-            </tr>
-        ))
-    ) : (
-        <tr>
-            <td colSpan={activeMainTab === "consumable" ? "7" : "7"} className="text-center text-gray-500 py-4">
-                {replacementSearch ? 'No items found matching your search' : 'No replacement items available'}
-            </td>
-        </tr>
-    )}
-</tbody>
+                        <div className="mb-4 grid grid-cols-4 gap-4">
+                            <div>
+                                <p className="text-sm text-gray-500">Order Date</p>
+                                <p className="font-semibold">{selectedMRS.order_date}</p>
+                            </div>
+                            <div>
+                                <p className="text-sm text-gray-500">MRS No</p>
+                                <p className="font-semibold">{selectedMRS.mrs_no}</p>
+                            </div>
+                            <div>
+                                <p className="text-sm text-gray-500">{activeMainTab === "consigned" ? "Station" : "Requestor"}</p>
+                                <p className="font-semibold">{selectedMRS.emp_name}</p>
+                            </div>
+                            <div>
+                                <p className="text-sm text-gray-500">Status</p>
+                                <span className="badge badge-info">{selectedMRS.mrs_status}</span>
+                            </div>
+                        </div>
+
+                        <div className="divider"></div>
+
+                        <h4 className="font-semibold mb-3">Items</h4>
+                        <div className="overflow-x-auto">
+                            <table className="table table-sm table-zebra">
+                                <thead>
+                                    <tr>
+                                        <th>Item Code</th>
+                                        <th>Description</th>
+                                        <th>Detailed Description</th>
+                                        {activeMainTab === "consumable" && <th>Serial</th>}
+                                        {activeMainTab === "consigned" && <th>Supplier</th>}
+                                        <th>Quantity</th>
+                                        <th>Requested Qty</th>
+                                        <th>Issued Qty</th>
+                                        {(activeSubTab === "For Pick Up" || activeSubTab === "Delivered") && (
+                                            <th className="text-center">Action</th>
+                                        )}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {modalItems.map((item, idx) => (
+                                        <tr key={idx}>
+                                            <td>{item.itemCode}</td>
+                                            <td>{item.material_description}</td>
+                                            <td>{item.detailed_description}</td>
+                                            {activeMainTab === "consumable" && (
+                                                <td>{item.serial ?? "N/A"}</td>
+                                            )}
+                                            {activeMainTab === "consigned" && (
+                                                <td>{item.supplier ?? "N/A"}</td>
+                                            )}
+                                            <td>{item.quantity}</td>
+                                            <td>
+                                                {item.request_quantity ?? item.request_qty}
+                                            </td>
+                                            <td>
+                                                {activeSubTab === "For Pick Up" || activeSubTab === "Delivered" ? (
+                                                    <span className="font-semibold">
+                                                        {item.issued_quantity ?? item.issued_qty ?? 0}
+                                                    </span>
+                                                ) : (
+                                                    <input 
+                                                        type="number" 
+                                                        className="input input-sm input-bordered w-20"
+                                                        min="1"
+                                                        max={item.request_quantity ?? item.request_qty}
+                                                        value={issuedQuantities[item.id] || ''}
+                                                        placeholder="1"
+                                                        onChange={(e) => {
+                                                            const max = item.request_quantity ?? item.request_qty;
+                                                            let value = parseInt(e.target.value) || 0;
+                                                            if (value > max) value = max;
+                                                            if (value < 1) value = 1;
+                                                            handleIssuedQtyChange(item.id, value);
+                                                        }}
+                                                    />
+                                                )}
+                                            </td>
+                                            {activeSubTab === "For Pick Up" && (
+                                                <td className="text-center">
+                                                    <button 
+                                                        className="btn btn-xs btn-warning"
+                                                        onClick={() => handleReplaceItem(item)}
+                                                    >
+                                                        Replace Item
+                                                    </button>
+                                                </td>
+                                            )}
+                                            {activeSubTab === "Delivered" && (
+                                                <td className="text-center">
+                                                    <button 
+                                                        className="btn btn-xs btn-error gap-1"
+                                                        onClick={() => handleReturnItem(item)}
+                                                        disabled={isProcessing}
+                                                        title="Return this item"
+                                                    >
+                                                        <RotateCcw className="w-3 h-3" />
+                                                        Return
+                                                    </button>
+                                                </td>
+                                            )}
+                                        </tr>
+                                    ))}
+                                </tbody>
                             </table>
                         </div>
 
                         <div className="modal-action">
-                            <button className="btn" onClick={closeReplacementModal}>Cancel</button>
+                            {activeSubTab === "Preparing" && (
+                                <button 
+                                    className="btn btn-primary"
+                                    onClick={handleProceed}
+                                    disabled={!isAllItemsHaveIssuedQty || isProcessing}
+                                >
+                                    {isProcessing ? 'Processing...' : 'Proceed'}
+                                </button>
+                            )}
+                            {activeSubTab === "For Pick Up" && (
+                                <button 
+                                    className="btn btn-success"
+                                    onClick={handleMarkAsDelivered}
+                                    disabled={isProcessing}
+                                >
+                                    {isProcessing ? 'Processing...' : 'Mark as Delivered'}
+                                </button>
+                            )}
+                            <button className="btn" onClick={closeModal}>
+                                Close
+                            </button>
                         </div>
                     </div>
-                    <form method="dialog" className="modal-backdrop" onClick={closeReplacementModal}>
-                        <button>close</button>
-                    </form>
-                </dialog>
+                    <div className="modal-backdrop" onClick={closeModal}></div>
+                </div>
+            )}
+
+            {/* ================= REPLACE ITEM MODAL ================= */}
+            {showReplaceModal && selectedItemForReplace && (
+                <div className="modal modal-open">
+                    <div className="modal-box max-w-5xl">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="font-bold text-lg">Replace Item</h3>
+                            <button 
+                                className="btn btn-sm btn-circle btn-ghost"
+                                onClick={closeReplaceModal}
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Current Item Card */}
+                        <div className="card bg-base-200 mb-6">
+                            <div className="card-body">
+                                <h4 className="card-title text-base">Current Item</h4>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <p className="text-sm text-gray-500">Item Code</p>
+                                        <p className="font-semibold">{selectedItemForReplace.itemCode}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-sm text-gray-500">Description</p>
+                                        <p className="font-semibold">{selectedItemForReplace.material_description}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-sm text-gray-500">Detailed Description</p>
+                                        <p className="font-semibold">{selectedItemForReplace.detailed_description}</p>
+                                    </div>
+                                    {activeMainTab === "consumable" && (
+                                        <div>
+                                            <p className="text-sm text-gray-500">Serial</p>
+                                            <p className="font-semibold">{selectedItemForReplace.serial ?? "N/A"}</p>
+                                        </div>
+                                    )}
+                                    {activeMainTab === "consigned" && (
+                                        <div>
+                                            <p className="text-sm text-gray-500">Supplier</p>
+                                            <p className="font-semibold">{selectedItemForReplace.supplier ?? "N/A"}</p>
+                                        </div>
+                                    )}
+                                    <div>
+                                        <p className="text-sm text-gray-500">Issued Quantity</p>
+                                        <p className="font-semibold">
+                                            {selectedItemForReplace.issued_quantity ?? selectedItemForReplace.issued_qty}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="divider">Available Replacements</div>
+
+                        {/* Replacement Items Table */}
+                        <div className="overflow-x-auto">
+                            <table className="table table-sm table-zebra">
+                                <thead>
+                                    <tr>
+                                        <th>Item Code</th>
+                                        <th>Material Description</th>
+                                        <th>Detailed Description</th>
+                                        {activeMainTab === "consumable" && (
+                                            <>
+                                                <th>Serial</th>
+                                                <th>Bin Location</th>
+                                            </>
+                                        )}
+                                        {activeMainTab === "consigned" && (
+                                            <>
+                                                <th>Supplier</th>
+                                                <th>Expiration</th>
+                                                <th>Bin Location</th>
+                                            </>
+                                        )}
+                                        <th>Available Qty</th>
+                                        <th className="text-center">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {availableReplacements.length === 0 && (
+                                        <tr>
+                                            <td colSpan={
+                                                activeMainTab === "consumable" ? "7" : 
+                                                activeMainTab === "consigned" ? "8" : "5"
+                                            } className="text-center text-gray-400">
+                                                No replacement items available
+                                            </td>
+                                        </tr>
+                                    )}
+
+                                    {availableReplacements.map((replacement, idx) => (
+                                        <tr key={idx}>
+                                            <td>{replacement.item_code}</td>
+                                            <td>{replacement.material_description}</td>
+                                            <td>{replacement.detailed_description}</td>
+                                            {activeMainTab === "consumable" && (
+                                                <>
+                                                    <td>{replacement.serial ?? "N/A"}</td>
+                                                    <td>{replacement.bin_location ?? "N/A"}</td>
+                                                </>
+                                            )}
+                                            {activeMainTab === "consigned" && (
+                                                <>
+                                                    <td>{replacement.supplier ?? "N/A"}</td>
+                                                    <td>{replacement.expiration ?? "N/A"}</td>
+                                                    <td>{replacement.bin_location ?? "N/A"}</td>
+                                                </>
+                                            )}
+                                            <td>{replacement.quantity ?? replacement.qty}</td>
+                                            <td className="text-center">
+                                                <button 
+                                                    className="btn btn-xs btn-primary"
+                                                    onClick={() => handleConfirmReplacement(replacement)}
+                                                    disabled={isProcessing}
+                                                >
+                                                    Select
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div className="modal-action">
+                            <button className="btn" onClick={closeReplaceModal}>
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                    <div className="modal-backdrop" onClick={closeReplaceModal}></div>
+                </div>
             )}
         </AuthenticatedLayout>
     );

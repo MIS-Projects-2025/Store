@@ -2,390 +2,420 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Inertia\Inertia;
+use App\Http\Controllers\Controller;
 use App\Models\Consigned;
 use App\Models\ConsignedDetail;
 use App\Models\ConsignedHistory;
 use App\Models\ConsignedDetailHistory;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Inertia\Inertia;
 
 class ConsignedController extends Controller
 {
-    public function index(Request $request)
+    /**
+     * Log quantity addition manually (not covered by model events)
+     */
+    private function logQuantityAddition($detail, $quantityAdded, $oldQty, $newQty)
     {
-        $search = $request->input('search', '');
-        $perPage = $request->input('per_page', 10);
-
-        $query = Consigned::query()
-            ->select(
-                'id',
-                'consigned_no',
-                'mat_description',
-                'category'
-            );
-
-        if (!empty($search)) {
-            $query->where(function($q) use ($search) {
-                $q->where('consigned_no', 'LIKE', "%{$search}%")
-                  ->orWhere('mat_description', 'LIKE', "%{$search}%")
-                  ->orWhere('category', 'LIKE', "%{$search}%");
-            });
-        }
-
-        $consignedItems = $query->paginate($perPage);
-
-        return Inertia::render('Consigned', [
-            'tableData' => [
-                'data' => $consignedItems->items(),
-                'pagination' => [
-                    'from' => $consignedItems->firstItem(),
-                    'to' => $consignedItems->lastItem(),
-                    'total' => $consignedItems->total(),
-                    'current_page' => $consignedItems->currentPage(),
-                    'last_page' => $consignedItems->lastPage(),
-                    'per_page' => $consignedItems->perPage(),
-                ]
-            ],
-            'tableFilters' => [
-                'search' => $search,
-                'per_page' => $perPage
-            ]
+        $userName = session('emp_data.emp_name', 'Unknown User');
+        
+        ConsignedDetailHistory::create([
+            'consigned_detail_id' => $detail->id,
+            'consigned_no' => $detail->consigned_no,
+            'item_code' => $detail->item_code,
+            'action' => 'quantity_added',
+            'user_name' => $userName,
+            'changes' => ["Added quantity: {$quantityAdded} (from {$oldQty} to {$newQty})"],
+            'old_values' => ['qty' => $oldQty],
+            'new_values' => ['qty' => $newQty],
+            'created_at' => now(),
         ]);
     }
 
-    public function show($id)
+    public function index(Request $request)
     {
-        $consignedItem = Consigned::with('details')->findOrFail($id);
-        
-        if (request()->wantsJson() || request()->ajax()) {
-            return response()->json([
-                'consignedItem' => $consignedItem
-            ]);
+        $perPage = $request->input('per_page', 10);
+        $search  = $request->input('search');
+
+        $query = Consigned::query()
+            ->orderBy('created_at', 'desc');
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('consigned_no', 'like', "%{$search}%")
+                  ->orWhere('selected_itemcode', 'like', "%{$search}%")
+                  ->orWhere('selected_supplier', 'like', "%{$search}%");
+            });
         }
-        
-        return Inertia::render('ConsignedView', [
-            'consignedItem' => $consignedItem
+
+        $consigned = $query->paginate($perPage)->withQueryString();
+
+        $consigned->getCollection()->transform(function ($row) {
+            $details = ConsignedDetail::where('consigned_no', $row->consigned_no)->get();
+
+            $row->item_codes = $details
+                ->pluck('item_code')
+                ->unique()
+                ->values();
+
+            $row->suppliers = $details
+                ->pluck('supplier')
+                ->unique()
+                ->values();
+
+            $row->details = $details->map(function ($d) {
+                return [
+                    'id' => $d->id,
+                    'item_code' => $d->item_code,
+                    'supplier' => $d->supplier,
+                    'expiration' => $d->expiration,
+                    'uom' => $d->uom,
+                    'qty' => $d->qty,
+                    'qty_per_box' => $d->qty_per_box,
+                    'minimum' => $d->minimum,
+                    'maximum' => $d->maximum,
+                    'price' => $d->price,
+                    'bin_location' => $d->bin_location,
+                ];
+            });
+
+            return $row;
+        });
+
+        $nextConsignedNo = $this->generateConsignedNumber();
+
+        return Inertia::render('Consigned', [
+            'tableData' => [
+                'data' => $consigned->items(),
+                'pagination' => [
+                    'from'          => $consigned->firstItem() ?? 0,
+                    'to'            => $consigned->lastItem() ?? 0,
+                    'total'         => $consigned->total(),
+                    'current_page' => $consigned->currentPage(),
+                    'last_page'    => $consigned->lastPage(),
+                    'per_page'     => $consigned->perPage(),
+                ],
+            ],
+            'tableFilters' => [
+                'search' => $search,
+            ],
+            'nextConsignedNo' => $nextConsignedNo,
         ]);
+    }
+
+    public function updateItem(Request $request, $id)
+    {
+        $request->validate([
+            'selected_itemcode' => 'required|string',
+            'selected_supplier' => 'required|string',
+        ]);
+
+        $consigned = Consigned::findOrFail($id);
+        $consigned->selected_itemcode = $request->selected_itemcode;
+        $consigned->selected_supplier = $request->selected_supplier;
+        $consigned->save(); // Model event will log this automatically
+
+        return redirect()->back()->with('success', 'Consigned item updated successfully');
+    }
+
+    /**
+     * Update consigned item's description and category
+     */
+    public function update(Request $request, $id)
+    {
+        $request->validate([
+            'mat_description' => 'required|string|max:255',
+            'category' => 'nullable|string|max:255',
+        ]);
+
+        $consigned = Consigned::findOrFail($id);
+        $consigned->mat_description = $request->mat_description;
+        $consigned->category = $request->category;
+        $consigned->save(); // Model event will log this automatically
+
+        return redirect()->back()->with('success', 'Item updated successfully');
+    }
+
+    /**
+     * Generate the next consigned number in format CON-00001
+     */
+    private function generateConsignedNumber()
+    {
+        $lastConsigned = Consigned::orderBy('consigned_no', 'desc')->first();
+
+        if (!$lastConsigned || !$lastConsigned->consigned_no) {
+            return 'CON-00001';
+        }
+
+        $lastNumber = intval(substr($lastConsigned->consigned_no, 4));
+        $newNumber = $lastNumber + 1;
+        return 'CON-' . str_pad($newNumber, 5, '0', STR_PAD_LEFT);
     }
 
     public function store(Request $request)
     {
-        $validated = $request->validate([
+        $request->validate([
             'mat_description' => 'required|string|max:255',
-            'category' => 'required|string|max:255',
-            'item_code' => 'required|string|max:100',
-            'supplier' => 'required|string|max:255',
-            'bin_location' => 'nullable|string|max:100',
-            'expiration' => 'nullable|date',
-            'qty' => 'required|numeric|min:0',
-            'uom' => 'required|string|max:50',
-            'qty_per_box' => 'nullable|numeric|min:0',
-            'minimum' => 'nullable|numeric|min:0',
-            'maximum' => 'nullable|numeric|min:0',
-            'price' => 'required|numeric|min:0',
-        ]);
-
-        try {
-            DB::beginTransaction();
-
-            $lastConsigned = Consigned::orderBy('id', 'desc')->first();
-            $newNumber = $lastConsigned ? (intval(substr($lastConsigned->consigned_no, -4)) + 1) : 1;
-            $consignedNo = 'CON-' . str_pad($newNumber, 4, '0', STR_PAD_LEFT);
-
-            Consigned::create([
-                'consigned_no' => $consignedNo,
-                'mat_description' => $validated['mat_description'],
-                'category' => $validated['category'],
-            ]);
-
-            ConsignedDetail::create([
-                'consigned_no' => $consignedNo,
-                'item_code' => $validated['item_code'],
-                'supplier' => $validated['supplier'],
-                'bin_location' => $validated['bin_location'],
-                'expiration' => $validated['expiration'],
-                'uom' => $validated['uom'],
-                'qty' => $validated['qty'],
-                'qty_per_box' => $validated['qty_per_box'],
-                'minimum' => $validated['minimum'],
-                'maximum' => $validated['maximum'],
-                'price' => $validated['price'],
-            ]);
-
-            DB::commit();
-
-            return redirect()->route('consigned')->with('success', 'Consigned item created successfully');
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return back()->withErrors(['error' => 'Failed to create consigned item: ' . $e->getMessage()]);
-        }
-    }
-
-    public function addDetail(Request $request)
-    {
-        $validated = $request->validate([
-            'consigned_no' => 'required|string|exists:consigned,consigned_no',
-            'item_code' => 'required|string|max:100',
-            'supplier' => 'required|string|max:255',
-            'bin_location' => 'nullable|string|max:100',
-            'expiration' => 'nullable|date',
-            'qty' => 'required|numeric|min:0',
-            'uom' => 'required|string|max:50',
-            'qty_per_box' => 'nullable|numeric|min:0',
-            'minimum' => 'nullable|numeric|min:0',
-            'maximum' => 'nullable|numeric|min:0',
-            'price' => 'required|numeric|min:0',
-        ]);
-
-        try {
-            ConsignedDetail::create([
-                'consigned_no' => $validated['consigned_no'],
-                'item_code' => $validated['item_code'],
-                'supplier' => $validated['supplier'],
-                'bin_location' => $validated['bin_location'],
-                'expiration' => $validated['expiration'],
-                'uom' => $validated['uom'],
-                'qty' => $validated['qty'],
-                'qty_per_box' => $validated['qty_per_box'],
-                'minimum' => $validated['minimum'],
-                'maximum' => $validated['maximum'],
-                'price' => $validated['price'],
-            ]);
-
-            return back()->with('success', 'Detail added successfully');
-
-        } catch (\Exception $e) {
-            return back()->withErrors(['error' => 'Failed to add detail: ' . $e->getMessage()]);
-        }
-    }
-
-public function bulkUpdateDetails(Request $request)
-{
-    $validated = $request->validate([
-        'details' => 'required|array',
-        'details.*.id' => 'required|exists:consigned_details,id',
-        'details.*.item_code' => 'required|string|max:100',
-        'details.*.supplier' => 'required|string|max:255',
-        'details.*.bin_location' => 'nullable|string|max:100',
-        'details.*.expiration' => 'nullable|date',
-        'details.*.qty' => 'required|numeric|min:0',
-        'details.*.uom' => 'required|string|max:50',
-        'details.*.qty_per_box' => 'nullable|numeric|min:0',
-        'details.*.minimum' => 'nullable|numeric|min:0',
-        'details.*.maximum' => 'nullable|numeric|min:0',
-        'details.*.price' => 'required|numeric|min:0',
-    ]);
-
-    try {
-        DB::beginTransaction();
-        
-        foreach ($validated['details'] as $detailData) {
-            // Find the detail instance
-            $detail = ConsignedDetail::findOrFail($detailData['id']);
-            
-            // Update attributes (this will mark them as dirty)
-            $detail->item_code = $detailData['item_code'];
-            $detail->supplier = $detailData['supplier'];
-            $detail->bin_location = $detailData['bin_location'];
-            $detail->expiration = $detailData['expiration'];
-            $detail->qty = $detailData['qty'];
-            $detail->uom = $detailData['uom'];
-            $detail->qty_per_box = $detailData['qty_per_box'];
-            $detail->minimum = $detailData['minimum'];
-            $detail->maximum = $detailData['maximum'];
-            $detail->price = $detailData['price'];
-            
-            // Save will trigger the updated event in boot method
-            $detail->save();
-        }
-        
-        DB::commit();
-        
-        return back()->with('success', 'Details updated successfully');
-        
-    } catch (\Exception $e) {
-        DB::rollBack();
-        return back()->withErrors([
-            'error' => 'Failed to update details: ' . $e->getMessage()
-        ]);
-    }
-}
-
-    public function update(Request $request, $id)
-    {
-        $validated = $request->validate([
-            'mat_description' => 'required|string|max:255',
-            'category' => 'required|string|max:255',
-        ]);
-
-        try {
-            $consigned = Consigned::findOrFail($id);
-            $consigned->update([
-                'mat_description' => $validated['mat_description'],
-                'category' => $validated['category'],
-            ]);
-
-            return back()->with('success', 'Item updated successfully');
-
-        } catch (\Exception $e) {
-            return back()->withErrors(['error' => 'Failed to update item: ' . $e->getMessage()]);
-        }
-    }
-
-    public function searchDetails(Request $request)
-    {
-        $search = $request->input('search', '');
-        
-        if (empty($search)) {
-            return response()->json([]);
-        }
-
-        $details = ConsignedDetail::with('consigned:consigned_no,mat_description,category')
-            ->where(function($q) use ($search) {
-                $q->where('item_code', 'LIKE', "%{$search}%")
-                  ->orWhere('supplier', 'LIKE', "%{$search}%");
-            })
-            ->select('id', 'consigned_no', 'item_code', 'supplier', 'qty', 'uom', 'bin_location')
-            ->limit(10)
-            ->get();
-
-        return response()->json($details);
-    }
-
-    public function addQuantity(Request $request)
-    {
-        $validated = $request->validate([
-            'detail_id' => 'required|exists:consigned_details,id',
-            'quantity' => 'required|numeric|min:0.01',
-        ]);
-
-        try {
-            $detail = ConsignedDetail::findOrFail($validated['detail_id']);
-            $detail->qty = $detail->qty + $validated['quantity'];
-            $detail->save();
-
-            return back()->with('success', 'Quantity added successfully');
-
-        } catch (\Exception $e) {
-            return back()->withErrors(['error' => 'Failed to add quantity: ' . $e->getMessage()]);
-        }
-    }
-
-    public function addQuantityBulk(Request $request)
-    {
-        $validated = $request->validate([
+            'category' => 'nullable|string|max:255',
             'items' => 'required|array|min:1',
-            'items.*.detail_id' => 'required|exists:consigned_details,id',
-            'items.*.quantity' => 'required|numeric|min:0.01',
+            'items.*.item_code' => 'required|string',
+            'items.*.supplier' => 'required|string',
+            'items.*.qty' => 'required|numeric',
+            'items.*.expiration' => 'nullable|date',
+            'items.*.uom' => 'nullable|string',
+            'items.*.qty_per_box' => 'nullable|numeric',
+            'items.*.minimum' => 'nullable|numeric',
+            'items.*.maximum' => 'nullable|numeric',
+            'items.*.price' => 'nullable|numeric',
+            'items.*.bin_location' => 'nullable|string',
         ]);
 
+        DB::beginTransaction();
         try {
-            DB::beginTransaction();
-            
-            $updatedCount = 0;
-            
-            foreach ($validated['items'] as $item) {
-                $detail = ConsignedDetail::findOrFail($item['detail_id']);
-                $detail->qty = $detail->qty + $item['quantity'];
-                $detail->save();
-                $updatedCount++;
-            }
-            
-            DB::commit();
-            
-            return back()->with('success', "Successfully updated {$updatedCount} item(s)");
-            
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return back()->withErrors(['error' => 'Failed to add quantities: ' . $e->getMessage()]);
-        }
-    }
+            $consignedNo = $this->generateConsignedNumber();
+            $firstItem = $request->items[0];
 
-    public function destroy($id)
-    {
-        try {
-            DB::beginTransaction();
-            
-            $consigned = Consigned::findOrFail($id);
-            $consignedNo = $consigned->consigned_no;
-            
-            ConsignedDetail::where('consigned_no', $consignedNo)->delete();
-            $consigned->delete();
-            
+            // Create main consigned record - model event will log automatically
+            $consigned = Consigned::create([
+                'consigned_no' => $consignedNo,
+                'mat_description' => $request->mat_description,
+                'category' => $request->category,
+                'selected_itemcode' => $firstItem['item_code'],
+                'selected_supplier' => $firstItem['supplier'],
+            ]);
+
+            // Create details - model events will log automatically
+            foreach ($request->items as $item) {
+                ConsignedDetail::create([
+                    'consigned_no' => $consignedNo,
+                    'item_code' => $item['item_code'],
+                    'supplier' => $item['supplier'],
+                    'expiration' => $item['expiration'] ?? null,
+                    'uom' => $item['uom'] ?? null,
+                    'qty' => $item['qty'],
+                    'qty_per_box' => $item['qty_per_box'] ?? null,
+                    'minimum' => $item['minimum'] ?? null,
+                    'maximum' => $item['maximum'] ?? null,
+                    'price' => $item['price'] ?? null,
+                    'bin_location' => $item['bin_location'] ?? null,
+                ]);
+            }
+
             DB::commit();
-            
-            return back()->with('success', "Successfully deleted consigned item {$consignedNo} and all related details");
-            
+            return redirect()->back()->with('success', 'Item added successfully with ' . count($request->items) . ' detail(s)');
         } catch (\Exception $e) {
             DB::rollBack();
-            return back()->withErrors(['error' => 'Failed to delete item: ' . $e->getMessage()]);
+            return response()->json(['error' => $e->getMessage()], 500);
         }
     }
 
     /**
-     * Delete a single consigned detail
+     * Update multiple consigned details (bulk update)
      */
-    public function destroyDetail($id)
+    public function updateDetails(Request $request, $id)
     {
+        $request->validate([
+            'details' => 'required|array',
+            'details.*.item_code' => 'required|string',
+            'details.*.supplier' => 'required|string',
+            'details.*.uom' => 'required|string',
+            'details.*.qty' => 'required|numeric',
+            'details.*.expiration' => 'nullable|date',
+            'details.*.bin_location' => 'nullable|string',
+            'details.*.qty_per_box' => 'nullable|numeric',
+            'details.*.minimum' => 'nullable|numeric',
+            'details.*.maximum' => 'nullable|numeric',
+            'details.*.price' => 'nullable|numeric',
+        ]);
+
+        $consigned = Consigned::findOrFail($id);
+
+        DB::beginTransaction();
         try {
-            $detail = ConsignedDetail::findOrFail($id);
-            $itemCode = $detail->item_code;
-            $detail->delete();
-            
-            return back()->with('success', "Successfully deleted detail {$itemCode}");
+            foreach ($request->details as $detailData) {
+                if (isset($detailData['id']) && $detailData['id']) {
+                    // Update existing detail - model event will log automatically
+                    $detail = ConsignedDetail::where('id', $detailData['id'])
+                        ->where('consigned_no', $consigned->consigned_no)
+                        ->first();
+                    
+                    if ($detail) {
+                        $detail->update([
+                            'item_code' => $detailData['item_code'],
+                            'supplier' => $detailData['supplier'],
+                            'uom' => $detailData['uom'] ?? '',
+                            'expiration' => $detailData['expiration'] ?? null,
+                            'bin_location' => $detailData['bin_location'] ?? null,
+                            'qty' => $detailData['qty'],
+                            'qty_per_box' => $detailData['qty_per_box'] ?? null,
+                            'minimum' => $detailData['minimum'] ?? null,
+                            'maximum' => $detailData['maximum'] ?? null,
+                            'price' => $detailData['price'] ?? null,
+                        ]);
+                    }
+                } else {
+                    // Create new detail - model event will log automatically
+                    ConsignedDetail::create([
+                        'consigned_no' => $consigned->consigned_no,
+                        'item_code' => $detailData['item_code'],
+                        'supplier' => $detailData['supplier'],
+                        'uom' => $detailData['uom'] ?? '',
+                        'expiration' => $detailData['expiration'] ?? null,
+                        'bin_location' => $detailData['bin_location'] ?? null,
+                        'qty' => $detailData['qty'],
+                        'qty_per_box' => $detailData['qty_per_box'] ?? null,
+                        'minimum' => $detailData['minimum'] ?? null,
+                        'maximum' => $detailData['maximum'] ?? null,
+                        'price' => $detailData['price'] ?? null,
+                    ]);
+                }
+            }
+
+            DB::commit();
+            return response()->json(['success' => true]);
             
         } catch (\Exception $e) {
-            return back()->withErrors(['error' => 'Failed to delete detail: ' . $e->getMessage()]);
+            DB::rollBack();
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Delete a consigned detail
+     */
+    public function deleteDetail($id)
+    {
+        DB::beginTransaction();
+        try {
+            $detail = ConsignedDetail::findOrFail($id);
+            $detail->delete(); // Model event will log automatically
+
+            DB::commit();
+            return redirect()->back()->with('success', 'Detail deleted successfully');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return redirect()->back()->with('error', 'Failed to delete detail: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Add quantity to consigned details
+     */
+    public function addQuantity(Request $request)
+    {
+        $request->validate([
+            'items' => 'required|array',
+            'items.*.detail_id' => 'required|integer',
+            'items.*.quantity_to_add' => 'required|numeric|min:0'
+        ]);
+        
+        DB::beginTransaction();
+        try {
+            foreach ($request->items as $itemData) {
+                $detail = ConsignedDetail::findOrFail($itemData['detail_id']);
+                
+                // Store old quantity for custom logging
+                $oldQty = $detail->qty;
+                $quantityToAdd = $itemData['quantity_to_add'];
+                $newQty = $oldQty + $quantityToAdd;
+                
+                // Update quantity
+                $detail->qty = $newQty;
+                $detail->save();
+                
+                // Manual log for quantity addition (special case)
+                // We log this separately because it's a specific action type
+                $this->logQuantityAddition($detail, $quantityToAdd, $oldQty, $newQty);
+            }
+            
+            DB::commit();
+            return redirect()->back()->with('success', 'Quantities updated successfully');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Delete consigned item and all related details
+     */
+    public function destroy($id)
+    {
+        DB::beginTransaction();
+        try {
+            $consigned = Consigned::findOrFail($id);
+            $consignedNo = $consigned->consigned_no;
+            
+            // Delete all related details first - model events will log each deletion
+            $details = ConsignedDetail::where('consigned_no', $consignedNo)->get();
+            foreach ($details as $detail) {
+                $detail->delete(); // Model event will log automatically
+            }
+            
+            // Delete the main consigned record - model event will log automatically
+            $consigned->delete();
+            
+            DB::commit();
+            return redirect()->back()->with('success', 'Consigned item and all related details deleted successfully');
+            
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return redirect()->back()->with('error', 'Failed to delete consigned item: ' . $e->getMessage());
         }
     }
 
     /**
      * Get history for a consigned item
      */
-    public function getHistory($id)
+    public function history($id)
     {
         $consigned = Consigned::findOrFail($id);
         
-        $history = ConsignedHistory::where('consigned_id', $id)
-            ->orWhere('consigned_no', $consigned->consigned_no)
+        $history = ConsignedHistory::where('consigned_no', $consigned->consigned_no)
             ->orderBy('created_at', 'desc')
             ->get();
+        
+        return response()->json($history);
+    }
 
-        if (request()->wantsJson() || request()->ajax()) {
-            return response()->json([
-                'history' => $history
-            ]);
-        }
-
-        return Inertia::render('ConsignedHistory', [
-            'consigned' => $consigned,
+    public function getDetailHistory($id)
+    {
+        $detail = ConsignedDetail::findOrFail($id);
+        
+        $history = ConsignedDetailHistory::where('consigned_detail_id', $id)
+            ->orderBy('created_at', 'desc')
+            ->get();
+        
+        return response()->json([
+            'detail' => $detail,
             'history' => $history
         ]);
     }
 
     /**
-     * Get history for a consigned detail
+     * Search consigned items
      */
-    public function getDetailHistory($id)
+    public function search(Request $request)
     {
-        $detail = ConsignedDetail::with('consigned')->findOrFail($id);
+        $search = $request->input('search');
+        $type = $request->input('type', 'all');
         
-        $history = ConsignedDetailHistory::where('consigned_detail_id', $id)
-            ->orderBy('created_at', 'desc')
-            ->get();
-
-        if (request()->wantsJson() || request()->ajax()) {
-            return response()->json([
-                'detail' => $detail,
-                'history' => $history
-            ]);
+        $query = Consigned::query();
+        
+        if ($search) {
+            $query->where(function ($q) use ($search, $type) {
+                if ($type === 'all' || $type === 'item_code') {
+                    $q->orWhere('selected_itemcode', 'like', "%{$search}%");
+                }
+                if ($type === 'all' || $type === 'description') {
+                    $q->orWhere('mat_description', 'like', "%{$search}%");
+                }
+            });
         }
-
-        return Inertia::render('ConsignedDetailHistory', [
-            'detail' => $detail,
-            'history' => $history
-        ]);
+        
+        $items = $query->limit(20)->get();
+        
+        return response()->json($items);
     }
 }

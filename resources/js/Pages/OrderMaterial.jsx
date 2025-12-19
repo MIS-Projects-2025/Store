@@ -1,12 +1,13 @@
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout";
-import { Head, usePage } from "@inertiajs/react";
-import { useState } from "react";
+import { Head, usePage, router } from "@inertiajs/react";
+import { useState, useEffect  } from "react";
 
-export default function OrderMaterial({ tableData, tableFilters }) {
+export default function OrderMaterial({ consumables, supplies, consigned }) {
     const props = usePage().props;
     const emp_data = props.emp_data;
     const [selectedApprover, setSelectedApprover] = useState("");
     const [activeTab, setActiveTab] = useState("consumable");
+    const [selectedConsumableDetails, setSelectedConsumableDetails] = useState({});
     const [selectedSupplyDetails, setSelectedSupplyDetails] = useState({});
     const [selectedConsignedSuppliers, setSelectedConsignedSuppliers] = useState({});
     const [consumableSearch, setConsumableSearch] = useState("");
@@ -14,67 +15,233 @@ export default function OrderMaterial({ tableData, tableFilters }) {
     const [consignedSearch, setConsignedSearch] = useState("");
     const [employeeId, setEmployeeId] = useState("");
     const [selectedFactory, setSelectedFactory] = useState("");
+    const [cartItems, setCartItems] = useState([]);
+    const [isCartModalOpen, setIsCartModalOpen] = useState(false);
+    const isConsignedUser = emp_data?.emp_jobtitle === 'Consigned User';
 
-    // Mock data for consumable items
-    const mockConsumableData = [
-        { itemCode: "ITEM001", description: "Bearing", detailedDescription: "Ball bearing 6205-2RS", serial: "SN12345", quantity: 10, uom: "PCS" },
-        { itemCode: "ITEM001", description: "Bearing", detailedDescription: "Ball bearing 6205-2RS", serial: "SN12346", quantity: 10, uom: "PCS" },
-        { itemCode: "ITEM001", description: "Bearing", detailedDescription: "Ball bearing 6205-2RS", serial: "SN12347", quantity: 10, uom: "PCS" },
-        { itemCode: "ITEM002", description: "Motor Oil", detailedDescription: "SAE 10W-40 Synthetic Motor Oil", serial: "-", quantity: 5, uom: "LTR" },
-        { itemCode: "ITEM003", description: "V-Belt", detailedDescription: "Industrial V-Belt A-Section 1/2\" x 50\"", serial: "VB-789", quantity: 3, uom: "PCS" },
-        { itemCode: "ITEM003", description: "V-Belt", detailedDescription: "Industrial V-Belt A-Section 1/2\" x 50\"", serial: "VB-790", quantity: 3, uom: "PCS" },
-        { itemCode: "ITEM004", description: "Hydraulic Hose", detailedDescription: "High pressure hydraulic hose 1/2\" x 10m", serial: "HH-2024-001", quantity: 2, uom: "MTR" },
-        { itemCode: "ITEM005", description: "Grease", detailedDescription: "Lithium-based multi-purpose grease", serial: "-", quantity: 8, uom: "KG" },
-        { itemCode: "ITEM006", description: "Air Filter", detailedDescription: "Heavy duty air filter AF-2500", serial: "AF-001", quantity: 15, uom: "PCS" },
-        { itemCode: "ITEM006", description: "Air Filter", detailedDescription: "Heavy duty air filter AF-2500", serial: "AF-002", quantity: 15, uom: "PCS" },
-        { itemCode: "ITEM006", description: "Air Filter", detailedDescription: "Heavy duty air filter AF-2500", serial: "AF-003", quantity: 15, uom: "PCS" },
-        { itemCode: "ITEM007", description: "Coolant", detailedDescription: "Industrial coolant concentrate 50/50 mix", serial: "-", quantity: 20, uom: "LTR" },
-        { itemCode: "ITEM008", description: "Drive Chain", detailedDescription: "Roller chain 40-1 x 10ft", serial: "DC-445", quantity: 4, uom: "PCS" },
-        { itemCode: "ITEM008", description: "Drive Chain", detailedDescription: "Roller chain 40-1 x 10ft", serial: "DC-446", quantity: 4, uom: "PCS" },
-        { itemCode: "ITEM009", description: "Gasket Set", detailedDescription: "Complete gasket set for pump model P-300", serial: "GS-P300-01", quantity: 6, uom: "SET" },
-        { itemCode: "ITEM010", description: "Safety Gloves", detailedDescription: "Cut-resistant work gloves size L", serial: "-", quantity: 50, uom: "PAIR" },
-    ];
+    useEffect(() => {
+    if (isConsignedUser) {
+        setActiveTab("consigned");
+    }
+}, [isConsignedUser]);
 
-    // Mock data for supplies
-    const mockSuppliesData = [
-        { id: 1, description: "A4 Bond Paper", detailedDescription: "A4 White - SUP-300012", itemCode: "SUP-300012", quantity: 100, uom: "REAM" },
-        { id: 2, description: "A4 Bond Paper", detailedDescription: "A4 Yellow - SUP-300013", itemCode: "SUP-300013", quantity: 75, uom: "REAM" },
-        { id: 3, description: "A4 Bond Paper", detailedDescription: "A4 Blue - SUP-300014", itemCode: "SUP-300014", quantity: 50, uom: "REAM" },
-        { id: 4, description: "Ballpen", detailedDescription: "Ballpen Black - SUP-400021", itemCode: "SUP-400021", quantity: 200, uom: "PCS" },
-        { id: 5, description: "Ballpen", detailedDescription: "Ballpen Blue - SUP-400022", itemCode: "SUP-400022", quantity: 180, uom: "PCS" },
-        { id: 6, description: "Ballpen", detailedDescription: "Ballpen Red - SUP-400023", itemCode: "SUP-400023", quantity: 150, uom: "PCS" },
-        { id: 7, description: "Marker", detailedDescription: "Permanent Marker Black - SUP-500031", itemCode: "SUP-500031", quantity: 60, uom: "PCS" },
-        { id: 8, description: "Marker", detailedDescription: "Permanent Marker Blue - SUP-500032", itemCode: "SUP-500032", quantity: 45, uom: "PCS" },
-        { id: 9, description: "Folder", detailedDescription: "Expanding Folder - SUP-600041", itemCode: "SUP-600041", quantity: 30, uom: "PCS" },
-        { id: 10, description: "Stapler", detailedDescription: "Heavy Duty Stapler - SUP-700051", itemCode: "SUP-700051", quantity: 25, uom: "PCS" },
-        { id: 11, description: "Stapler Wire", detailedDescription: "Stapler Wire 23/13 - SUP-800061", itemCode: "SUP-800061", quantity: 120, uom: "BOX" },
-        { id: 12, description: "Stapler Wire", detailedDescription: "Stapler Wire 23/17 - SUP-800062", itemCode: "SUP-800062", quantity: 95, uom: "BOX" },
-        { id: 13, description: "Envelope", detailedDescription: "Long Brown Envelope - SUP-900071", itemCode: "SUP-900071", quantity: 500, uom: "PCS" },
-        { id: 14, description: "Envelope", detailedDescription: "Long White Envelope - SUP-900072", itemCode: "SUP-900072", quantity: 450, uom: "PCS" },
-        { id: 15, description: "Tape", detailedDescription: "Packaging Tape 2\" - SUP-100081", itemCode: "SUP-100081", quantity: 80, uom: "ROLL" },
-    ];
+const handleSubmitOrder = () => {
+    // Determine which type of items to submit based on active tab
+    const itemsToSubmit = cartItems.filter(item => item.type === activeTab);
+    
+    if (itemsToSubmit.length === 0) {
+        alert(`No ${activeTab} items to submit`);
+        return;
+    }
 
-    // Mock data for consigned items
-    const mockConsignedData = [
-        { id: 1, description: "Refrigerant R290", supplier: "CPAK - 820120R290", supplierCode: "820120R290", supplierName: "CPAK", quantity: 50, uom: "KG" },
-        { id: 2, description: "Refrigerant R290", supplier: "DAIKIN - 820120R290-D", supplierCode: "820120R290-D", supplierName: "DAIKIN", quantity: 45, uom: "KG" },
-        { id: 3, description: "Refrigerant R290", supplier: "SAMSUNG - 820120R290-S", supplierCode: "820120R290-S", supplierName: "SAMSUNG", quantity: 40, uom: "KG" },
-        { id: 4, description: "Compressor Oil", supplier: "MOBIL - OIL-500ML", supplierCode: "OIL-500ML", supplierName: "MOBIL", quantity: 100, uom: "BTL" },
-        { id: 5, description: "Compressor Oil", supplier: "SHELL - OIL-500ML-S", supplierCode: "OIL-500ML-S", supplierName: "SHELL", quantity: 85, uom: "BTL" },
-        { id: 6, description: "Thermal Paste", supplier: "ARCTIC - TP-2024-A", supplierCode: "TP-2024-A", supplierName: "ARCTIC", quantity: 200, uom: "TUBE" },
-        { id: 7, description: "Thermal Paste", supplier: "NOCTUA - TP-2024-N", supplierCode: "TP-2024-N", supplierName: "NOCTUA", quantity: 180, uom: "TUBE" },
-        { id: 8, description: "Copper Tube", supplier: "MUELER - CT-1/4-M", supplierCode: "CT-1/4-M", supplierName: "MUELER", quantity: 300, uom: "MTR" },
-        { id: 9, description: "Copper Tube", supplier: "NIBCO - CT-1/4-N", supplierCode: "CT-1/4-N", supplierName: "NIBCO", quantity: 250, uom: "MTR" },
-        { id: 10, description: "Insulation Foam", supplier: "ARMAFLEX - IF-3/8-A", supplierCode: "IF-3/8-A", supplierName: "ARMAFLEX", quantity: 150, uom: "MTR" },
-        { id: 11, description: "Capacitor 35uF", supplier: "PANASONIC - CAP-35UF-P", supplierCode: "CAP-35UF-P", supplierName: "PANASONIC", quantity: 75, uom: "PCS" },
-        { id: 12, description: "Fan Motor", supplier: "NIDEC - FM-120W-N", supplierCode: "FM-120W-N", supplierName: "NIDEC", quantity: 30, uom: "PCS" },
-        { id: 13, description: "Fan Motor", supplier: "EBM-PAPST - FM-120W-E", supplierCode: "FM-120W-E", supplierName: "EBM-PAPST", quantity: 25, uom: "PCS" },
-        { id: 14, description: "Thermostat", supplier: "HONEYWELL - TST-24V-H", supplierCode: "TST-24V-H", supplierName: "HONEYWELL", quantity: 40, uom: "PCS" },
-        { id: 15, description: "Thermostat", supplier: "JOHNSON - TST-24V-J", supplierCode: "TST-24V-J", supplierName: "JOHNSON", quantity: 35, uom: "PCS" },
-    ];
+    // For consigned tab, we don't validate the global state since values are stored per item
+    if (activeTab === 'consumable' || activeTab === 'supplies') {
+        if (!selectedApprover) {
+            alert('Please select an approver');
+            return;
+        }
+    }
+
+    // Prepare data for submission based on tab type
+    let data = {};
+    let routeName = '';
+
+    if (activeTab === 'consumable') {
+        routeName = 'order-material.submit-consumable';
+        data = {
+            approver: selectedApprover,
+            items: itemsToSubmit.map(item => ({
+                id: item.id,
+                itemCode: item.itemCode,
+                description: item.description,
+                detailedDescription: item.detailedDescription,
+                serial: item.serial,
+                quantity: item.quantity,
+                uom: item.uom,
+                requestQuantity: item.requestQuantity
+            }))
+        };
+
+        router.post(routeName, data, {
+            onSuccess: () => {
+                setCartItems(prev => prev.filter(item => item.type !== activeTab));
+                setIsCartModalOpen(false);
+                alert('Order submitted successfully!');
+            },
+            onError: (errors) => {
+                console.error('Submission errors:', errors);
+                alert('Failed to submit order. Please try again.');
+            }
+        });
+
+    } else if (activeTab === 'supplies') {
+        routeName = 'order-material.submit-supplies';
+        data = {
+            approver: selectedApprover,
+            items: itemsToSubmit.map(item => ({
+                id: item.id,
+                itemCode: item.itemCode,
+                description: item.description,
+                detailedDescription: item.detailedDescription,
+                quantity: item.quantity,
+                uom: item.uom,
+                requestQuantity: item.requestQuantity
+            }))
+        };
+
+        router.post(routeName, data, {
+            onSuccess: () => {
+                setCartItems(prev => prev.filter(item => item.type !== activeTab));
+                setIsCartModalOpen(false);
+                alert('Order submitted successfully!');
+            },
+            onError: (errors) => {
+                console.error('Submission errors:', errors);
+                alert('Failed to submit order. Please try again.');
+            }
+        });
+
+    } else if (activeTab === 'consigned') {
+        routeName = 'order-material.submit-consigned';
+        
+        // Group items by employeeId and factory combination
+        const groupedItems = itemsToSubmit.reduce((groups, item) => {
+            const key = `${item.employeeId}|${item.factory}`;
+            if (!groups[key]) {
+                groups[key] = {
+                    employeeId: item.employeeId,
+                    factory: item.factory,
+                    items: []
+                };
+            }
+            groups[key].items.push({
+                id: item.id,
+                itemCode: item.itemCode,
+                description: item.description,
+                supplier: item.supplier,
+                quantity: item.quantity,
+                uom: item.uom,
+                requestQuantity: item.requestQuantity
+            });
+            return groups;
+        }, {});
+
+        // Convert to array of groups
+        const groupsArray = Object.values(groupedItems);
+        
+        // Submit ALL groups in a SINGLE request
+        data = {
+            groups: groupsArray
+        };
+
+        router.post(routeName, data, {
+            onSuccess: () => {
+                // Clear all consigned items from cart
+                setCartItems(prev => prev.filter(item => item.type !== activeTab));
+                setIsCartModalOpen(false);
+                alert('All orders submitted successfully with the same MRS number!');
+            },
+            onError: (errors) => {
+                console.error('Submission errors:', errors);
+                alert('Failed to submit order. Please try again.');
+            }
+        });
+    }
+};
+
+    // Flatten consumable data with details
+    const consumableData = consumables?.flatMap(consumable => 
+        consumable.details?.map(detail => ({
+            id: detail.id,
+            consumable_id: consumable.consumable_id,
+            itemCode: detail.item_code,
+            description: consumable.material_description,
+            detailedDescription: detail.detailed_description,
+            serial: detail.serial || "-",
+            quantity: detail.quantity,
+            uom: consumable.uom,
+            category: consumable.category,
+            binLocation: detail.bin_location
+        })) || []
+    ) || [];
+
+    // Group consumables by description
+    const groupedConsumables = consumableData.reduce((acc, item) => {
+        if (!acc[item.description]) {
+            acc[item.description] = [];
+        }
+        acc[item.description].push(item);
+        return acc;
+    }, {});
+
+    // Get unique consumables (one per description)
+    const uniqueConsumables = Object.keys(groupedConsumables).map(desc => {
+        const items = groupedConsumables[desc];
+        return {
+            description: desc,
+            uom: items[0].uom,
+            variants: items,
+            defaultVariant: items[0]
+        };
+    });
+
+    // Handle consumable detail selection
+    const handleConsumableDetailChange = (description, selectedKey) => {
+        setSelectedConsumableDetails(prev => ({
+            ...prev,
+            [description]: selectedKey
+        }));
+    };
+
+    // Get selected variant for a consumable
+    const getSelectedConsumableVariant = (consumable) => {
+        const selectedKey = selectedConsumableDetails[consumable.description];
+        if (selectedKey) {
+            return consumable.variants.find(v => 
+                `${v.itemCode}|${v.detailedDescription}|${v.serial}` === selectedKey
+            );
+        }
+        return consumable.defaultVariant;
+    };
+
+    // Flatten supplies data with details
+    const suppliesData = supplies?.flatMap(supply => 
+        supply.details?.map(detail => ({
+            id: detail.id,
+            supplies_no: supply.supplies_no,
+            description: supply.material_description,
+            detailedDescription: detail.detailed_description,
+            itemCode: detail.item_code,
+            quantity: detail.qty,
+            uom: supply.uom,
+            price: detail.price,
+            min: detail.min,
+            max: detail.max
+        })) || []
+    ) || [];
+
+    // Flatten consigned data with details
+    const consignedData = consigned?.flatMap(item => 
+        item.details?.map(detail => ({
+            id: detail.id,
+            consigned_no: item.consigned_no,
+            description: item.mat_description,
+            supplier: detail.supplier,
+            itemCode: detail.item_code,
+            quantity: detail.qty,
+            uom: detail.uom,
+            category: item.category,
+            price: detail.price,
+            binLocation: detail.bin_location,
+            expiration: detail.expiration,
+            qtyPerBox: detail.qty_per_box,
+            minimum: detail.minimum,
+            maximum: detail.maximum
+        })) || []
+    ) || [];
 
     // Group supplies by description
-    const groupedSupplies = mockSuppliesData.reduce((acc, item) => {
+    const groupedSupplies = suppliesData.reduce((acc, item) => {
         if (!acc[item.description]) {
             acc[item.description] = [];
         }
@@ -110,7 +277,7 @@ export default function OrderMaterial({ tableData, tableFilters }) {
     };
 
     // Group consigned items by description
-    const groupedConsigned = mockConsignedData.reduce((acc, item) => {
+    const groupedConsigned = consignedData.reduce((acc, item) => {
         if (!acc[item.description]) {
             acc[item.description] = [];
         }
@@ -146,13 +313,15 @@ export default function OrderMaterial({ tableData, tableFilters }) {
     };
 
     // Filter consumable data based on search
-    const filteredConsumableData = mockConsumableData.filter(item => {
+    const filteredConsumables = uniqueConsumables.filter(consumable => {
         const searchLower = consumableSearch.toLowerCase();
         return (
-            item.itemCode.toLowerCase().includes(searchLower) ||
-            item.description.toLowerCase().includes(searchLower) ||
-            item.detailedDescription.toLowerCase().includes(searchLower) ||
-            item.serial.toLowerCase().includes(searchLower)
+            consumable.description.toLowerCase().includes(searchLower) ||
+            consumable.variants.some(v => 
+                v.itemCode.toLowerCase().includes(searchLower) ||
+                v.detailedDescription.toLowerCase().includes(searchLower) ||
+                v.serial.toLowerCase().includes(searchLower)
+            )
         );
     });
 
@@ -173,6 +342,86 @@ export default function OrderMaterial({ tableData, tableFilters }) {
             consigned.variants.some(v => v.supplier.toLowerCase().includes(searchLower))
         );
     });
+
+// Add item to cart with validation
+const addToCart = (item, type) => {
+    // Validation for consumable and supplies
+    if ((type === 'consumable' || type === 'supplies') && !selectedApprover) {
+        alert('Please select an Approver before adding items to cart.');
+        return;
+    }
+    
+    // Validation for consigned
+    if (type === 'consigned') {
+        if (!employeeId.trim()) {
+            alert('Please enter an Employee ID before adding items to cart.');
+            return;
+        }
+        if (!selectedFactory) {
+            alert('Please select a Factory before adding items to cart.');
+            return;
+        }
+    }
+    
+    // Special handling for consigned items with FIFO and matching details
+    if (type === 'consigned' && item.allMatchingDetails) {
+        // Sort details by expiration (FIFO)
+        const sortedDetails = [...item.allMatchingDetails].sort((a, b) => {
+            if (!a.expiration && !b.expiration) return 0;
+            if (!a.expiration) return 1;
+            if (!b.expiration) return -1;
+            return new Date(a.expiration) - new Date(b.expiration);
+        });
+        
+        // Find the item with the oldest expiration that has available quantity
+        const availableDetail = sortedDetails.find(detail => 
+            parseFloat(detail.qty || 0) > 0
+        );
+        
+        if (!availableDetail) {
+            alert('No available quantity for this item');
+            return;
+        }
+        
+        const cartItem = {
+            id: availableDetail.id,
+            consignedId: item.consignedId,
+            itemCode: item.itemCode,
+            description: item.description,
+            supplier: item.supplier,
+            quantity: parseFloat(availableDetail.qty || 0),
+            uom: availableDetail.uom,
+            expiration: availableDetail.expiration,
+            binLocation: availableDetail.bin_location,
+            type: type,
+            requestQuantity: 1, // Default request quantity
+            cartId: `${type}-${availableDetail.id}-${Date.now()}`, // Unique ID for cart item
+            // Store consigned-specific data with the item
+            employeeId: employeeId,
+            factory: selectedFactory,
+            // Store all matching details for reference
+            allMatchingDetails: item.allMatchingDetails
+        };
+        
+        setCartItems(prev => [...prev, cartItem]);
+        return;
+    }
+    
+    // Regular handling for other types
+    const cartItem = {
+        ...item,
+        type: type,
+        requestQuantity: 1, // Default request quantity
+        cartId: `${type}-${item.id}-${Date.now()}`, // Unique ID for cart item
+        // Store consigned-specific data with the item
+        ...(type === 'consigned' && {
+            employeeId: employeeId,
+            factory: selectedFactory
+        })
+    };
+    
+    setCartItems(prev => [...prev, cartItem]);
+};
 
     return (
         <AuthenticatedLayout>
@@ -224,61 +473,60 @@ export default function OrderMaterial({ tableData, tableFilters }) {
                                     {emp_data?.emp_dept || 'N/A'}
                                 </div>
                             </div>
+{/* Prodline / Employee ID Section */}
+{activeTab === "consigned" && isConsignedUser ? (
+    <div>
+        <h3 className="text-info font-semibold mb-3">Employee ID</h3>
+        <input 
+            type="text" 
+            className="input input-bordered w-full"
+            placeholder="Enter Employee ID"
+            value={employeeId}
+            onChange={(e) => setEmployeeId(e.target.value)}
+        />
+    </div>
+) : !isConsignedUser ? (
+    <div>
+        <h3 className="text-info font-semibold mb-3">Prodline</h3>
+        <div className="input input-bordered w-full flex items-center bg-base-200">
+            {emp_data?.emp_prodline || 'N/A'}
+        </div>
+    </div>
+) : null}
 
-                            {/* Prodline / Employee ID Section */}
-                            {activeTab === "consigned" ? (
-                                <div>
-                                    <h3 className="text-info font-semibold mb-3">Employee ID</h3>
-                                    <input 
-                                        type="text" 
-                                        className="input input-bordered w-full"
-                                        placeholder="Enter Employee ID"
-                                        value={employeeId}
-                                        onChange={(e) => setEmployeeId(e.target.value)}
-                                    />
-                                </div>
-                            ) : (
-                                <div>
-                                    <h3 className="text-info font-semibold mb-3">Prodline</h3>
-                                    <div className="input input-bordered w-full flex items-center bg-base-200">
-                                        {emp_data?.emp_prodline || 'N/A'}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Approver / Factory Section */}
-                            {activeTab === "consigned" ? (
-                                <div>
-                                    <h3 className="text-info font-semibold mb-3">Factory</h3>
-                                    <select 
-                                        className="select select-bordered w-full"
-                                        value={selectedFactory}
-                                        onChange={(e) => setSelectedFactory(e.target.value)}
-                                    >
-                                        <option value="" disabled>Select a Factory</option>
-                                        <option value="factory1">Factory 1</option>
-                                        <option value="factory2">Factory 2</option>
-                                        <option value="factory3">Factory 3</option>
-                                        <option value="factory4">Factory 4</option>
-                                        <option value="factory5">Factory 5</option>
-                                    </select>
-                                </div>
-                            ) : (
-                                <div>
-                                    <h3 className="text-info font-semibold mb-3">Approver</h3>
-                                    <select 
-                                        className="select select-bordered w-full"
-                                        value={selectedApprover}
-                                        onChange={(e) => setSelectedApprover(e.target.value)}
-                                    >
-                                        <option value="" disabled>Select an Approver</option>
-                                        <option value="approver1">John Doe</option>
-                                        <option value="approver2">Jane Smith</option>
-                                        <option value="approver3">Mike Johnson</option>
-                                        <option value="approver4">Sarah Williams</option>
-                                    </select>
-                                </div>
-                            )}
+{/* Factory Section for Consigned Users */}
+{activeTab === "consigned" && isConsignedUser ? (
+    <div>
+        <h3 className="text-info font-semibold mb-3">Factory</h3>
+        <select 
+            className="select select-bordered w-full"
+            value={selectedFactory}
+            onChange={(e) => setSelectedFactory(e.target.value)}
+        >
+            <option value="" disabled>Select a Factory</option>
+            <option value="Factory 1">Factory 1</option>
+            <option value="Factory 2">Factory 2</option>
+            <option value="Factory 3">Factory 3</option>
+            <option value="Factory 4">Factory 4</option>
+            <option value="Factory 5">Factory 5</option>
+        </select>
+    </div>
+) : !isConsignedUser ? (
+    <div>
+        <h3 className="text-info font-semibold mb-3">Approver</h3>
+        <select 
+            className="select select-bordered w-full"
+            value={selectedApprover}
+            onChange={(e) => setSelectedApprover(e.target.value)}
+        >
+            <option value="" disabled>Select an Approver</option>
+            <option value="approver1">John Doe</option>
+            <option value="approver2">Jane Smith</option>
+            <option value="approver3">Mike Johnson</option>
+            <option value="approver4">Sarah Williams</option>
+        </select>
+    </div>
+) : null}
                         </div>
                     </div>
                 </div>
@@ -286,164 +534,323 @@ export default function OrderMaterial({ tableData, tableFilters }) {
                 {/* Tabbed Card */}
                 <div className="card bg-base-100 shadow-xl">
                     <div className="card-body">
-                        {/* Tabs */}
-                        <div className="tabs tabs-boxed mb-4">
-                            <a 
-                                className={`tab ${activeTab === "consumable" ? "tab-active" : ""}`}
-                                onClick={() => {
-                                    setActiveTab("consumable");
-                                }}
-                            >
-                                Consumable and Spare parts
-                            </a>
-                            <a 
-                                className={`tab ${activeTab === "supplies" ? "tab-active" : ""}`}
-                                onClick={() => {
-                                    setActiveTab("supplies");
-                                }}
-                            >
-                                Supplies
-                            </a>
-                            <a 
-                                className={`tab ${activeTab === "consigned" ? "tab-active" : ""}`}
-                                onClick={() => {
-                                    setActiveTab("consigned");
-                                }}
-                            >
-                                Consigned
-                            </a>
-                        </div>
+                        {/* Tabs with Cart Button */}
+<div className="flex justify-between items-center mb-4">
+    <div className="tabs tabs-boxed">
+        {/* Only show Consumable and Supplies tabs if NOT a Consigned User */}
+        {!isConsignedUser && (
+            <>
+                <a 
+                    className={`tab ${activeTab === "consumable" ? "tab-active" : ""}`}
+                    onClick={() => {
+                        setActiveTab("consumable");
+                    }}
+                >
+                    Consumable and Spare parts
+                </a>
+                <a 
+                    className={`tab ${activeTab === "supplies" ? "tab-active" : ""}`}
+                    onClick={() => {
+                        setActiveTab("supplies");
+                    }}
+                >
+                    Supplies
+                </a>
+            </>
+        )}
+        {/* Only show Consigned tab if user has Consigned User job title */}
+        {isConsignedUser && (
+            <a 
+                className={`tab ${activeTab === "consigned" ? "tab-active" : ""}`}
+                onClick={() => {
+                    setActiveTab("consigned");
+                }}
+            >
+                Consigned
+            </a>
+        )}
+    </div>
+</div>
 
                         {/* Tab Content */}
                         <div className="mt-4">
 {activeTab === "consumable" && (
     <div>
-        <h3 className="text-lg font-semibold mb-3">Consumable and Spare parts</h3>
-        
-        {/* Search Bar */}
-        <div className="mb-4">
-            <input 
-                type="text" 
-                placeholder="Search by Item Code, Description, Detailed Description, or Serial..." 
-                className="input input-bordered w-full"
-                value={consumableSearch}
-                onChange={(e) => setConsumableSearch(e.target.value)}
-            />
+        <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-semibold mb-3">Consumable and Spare parts</h3>
+            <button 
+                className="btn btn-primary gap-2"
+                onClick={() => setIsCartModalOpen(true)}
+            >
+                <div className="indicator">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                    {cartItems.length > 0 && (
+                        <span className="indicator-item badge badge-secondary">{cartItems.length}</span>
+                    )}
+                </div>
+                Cart Items
+            </button>
         </div>
+            
+            {/* Search Bar */}
+            <div className="mb-4">
+                <input 
+                    type="text" 
+                    placeholder="Search by Description, Item Code, Detailed Description, or Serial..." 
+                    className="input input-bordered w-full"
+                    value={consumableSearch}
+                    onChange={(e) => setConsumableSearch(e.target.value)}
+                />
+            </div>
 
-        <div className="overflow-x-auto">
-            <table className="table table-zebra">
-                <thead>
-                    <tr>
-                        <th>Item Code</th>
-                        <th>Description</th>
-                        <th>Detailed Description</th>
-                        <th>Serial</th>
-                        <th>Quantity</th>
-                        <th>UOM</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {filteredConsumableData.map((item, index) => (
-                        <tr key={index}>
-                            <td>{item.itemCode}</td>
-                            <td>{item.description}</td>
-                            <td>{item.detailedDescription}</td>
-                            <td>{item.serial}</td>
-                            <td>{item.quantity}</td>
-                            <td>{item.uom}</td>
-                            <td>
-                                <button className="btn btn-sm btn-primary">
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-                                    </svg>
-                                </button>
-                            </td>
+            <div className="overflow-x-auto">
+                <table className="table table-zebra">
+                    <thead>
+                        <tr>
+                            <th>Description</th>
+                            <th className="min-w-[200px]">Item Code</th>
+                            <th className="min-w-[250px]">Detailed Description</th>
+                            <th className="min-w-[150px]">Serial</th>
+                            <th>Quantity</th>
+                            <th>UOM</th>
+                            <th>Action</th>
                         </tr>
-                    ))}
-                </tbody>
-            </table>
-        </div>
-    </div>
-)}
-
-{activeTab === "supplies" && (
-    <div>
-        <h3 className="text-lg font-semibold mb-3">Supplies</h3>
-        
-        {/* Search Bar */}
-        <div className="mb-4">
-            <input 
-                type="text" 
-                placeholder="Search by Description or Detailed Description..." 
-                className="input input-bordered w-full"
-                value={suppliesSearch}
-                onChange={(e) => setSuppliesSearch(e.target.value)}
-            />
-        </div>
-
-        <div className="overflow-x-auto">
-            <table className="table table-zebra">
-                <thead>
-                    <tr>
-                        <th>Description</th>
-                        <th className="min-w-[350px]">Detailed Description</th>
-                        <th>Quantity</th>
-                        <th>UOM</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {filteredSupplies.map((supply, index) => {
-                        const selectedVariant = getSelectedVariant(supply);
-                        return (
-                            <tr key={index}>
-                                <td>{supply.description}</td>
-                                <td className="min-w-[350px]">
-                                    {supply.variants.length > 1 ? (
-                                        <select 
-                                            className="select select-bordered w-full h-auto py-2"
-                                            value={selectedVariant.detailedDescription}
-                                            onChange={(e) => handleSupplyDetailChange(supply.description, e.target.value)}
-                                        >
-                                            {supply.variants.map((variant, vIndex) => (
-                                                <option key={vIndex} value={variant.detailedDescription}>
-                                                    {variant.detailedDescription}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    ) : (
-                                        <span>{selectedVariant.detailedDescription}</span>
-                                    )}
-                                </td>
-                                <td>{selectedVariant.quantity}</td>
-                                <td>{selectedVariant.uom}</td>
-                                <td>
-                                    <button className="btn btn-sm btn-primary">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-                                        </svg>
-                                    </button>
-                                </td>
+                    </thead>
+                    <tbody>
+                        {filteredConsumables.length > 0 ? (
+                            filteredConsumables.map((consumable, index) => {
+                                const selectedVariant = getSelectedConsumableVariant(consumable);
+                                return (
+                                    <tr key={index}>
+                                        <td>{consumable.description}</td>
+                                        <td className="min-w-[200px]">
+                                            {consumable.variants.length > 1 ? (
+                                                <select 
+                                                    className="select select-bordered w-full h-auto py-2"
+                                                    value={`${selectedVariant.itemCode}|${selectedVariant.detailedDescription}|${selectedVariant.serial}`}
+                                                    onChange={(e) => handleConsumableDetailChange(consumable.description, e.target.value)}
+                                                >
+                                                    {consumable.variants.map((variant, vIndex) => (
+                                                        <option 
+                                                            key={vIndex} 
+                                                            value={`${variant.itemCode}|${variant.detailedDescription}|${variant.serial}`}
+                                                        >
+                                                            {variant.itemCode}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            ) : (
+                                                <span>{selectedVariant.itemCode}</span>
+                                            )}
+                                        </td>
+                                        <td className="min-w-[250px]">
+                                            {consumable.variants.length > 1 ? (
+                                                <select 
+                                                    className="select select-bordered w-full h-auto py-2"
+                                                    value={`${selectedVariant.itemCode}|${selectedVariant.detailedDescription}|${selectedVariant.serial}`}
+                                                    onChange={(e) => handleConsumableDetailChange(consumable.description, e.target.value)}
+                                                >
+                                                    {consumable.variants.map((variant, vIndex) => (
+                                                        <option 
+                                                            key={vIndex} 
+                                                            value={`${variant.itemCode}|${variant.detailedDescription}|${variant.serial}`}
+                                                        >
+                                                            {variant.detailedDescription}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            ) : (
+                                                <span>{selectedVariant.detailedDescription}</span>
+                                            )}
+                                        </td>
+                                        <td className="min-w-[150px]">
+                                            {consumable.variants.length > 1 ? (
+                                                <select 
+                                                    className="select select-bordered w-full h-auto py-2"
+                                                    value={`${selectedVariant.itemCode}|${selectedVariant.detailedDescription}|${selectedVariant.serial}`}
+                                                    onChange={(e) => handleConsumableDetailChange(consumable.description, e.target.value)}
+                                                >
+                                                    {consumable.variants.map((variant, vIndex) => (
+                                                        <option 
+                                                            key={vIndex} 
+                                                            value={`${variant.itemCode}|${variant.detailedDescription}|${variant.serial}`}
+                                                        >
+                                                            {variant.serial}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            ) : (
+                                                <span>{selectedVariant.serial}</span>
+                                            )}
+                                        </td>
+                                        <td>{selectedVariant.quantity}</td>
+                                        <td>{selectedVariant.uom}</td>
+                                        <td>
+                                            <button 
+                                                className="btn btn-sm btn-primary"
+                                                disabled={!selectedApprover}
+                                                onClick={() => {
+                                                    const selectedVariant = getSelectedConsumableVariant(consumable);
+                                                    addToCart({
+                                                        id: selectedVariant.id,
+                                                        itemCode: selectedVariant.itemCode,
+                                                        description: consumable.description,
+                                                        detailedDescription: selectedVariant.detailedDescription,
+                                                        serial: selectedVariant.serial,
+                                                        quantity: selectedVariant.quantity,
+                                                        uom: selectedVariant.uom
+                                                    }, 'consumable');
+                                                }}
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                                                </svg>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                );
+                            })
+                        ) : (
+                            <tr>
+                                <td colSpan="7" className="text-center py-4">No consumable items found</td>
                             </tr>
-                        );
-                    })}
-                </tbody>
-            </table>
+                        )}
+                    </tbody>
+                </table>
+            </div>
         </div>
-    </div>
-)}
+    )}
 
-{activeTab === "consigned" && (
+    {activeTab === "supplies" && (
+        <div>
+            <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold mb-3">Supplies</h3>
+                <button 
+                    className="btn btn-primary gap-2"
+                    onClick={() => setIsCartModalOpen(true)}
+                >
+                    <div className="indicator">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                        </svg>
+                        {cartItems.length > 0 && (
+                            <span className="indicator-item badge badge-secondary">{cartItems.length}</span>
+                        )}
+                    </div>
+                    Cart Items
+                </button>
+            </div>
+            
+            {/* Search Bar */}
+            <div className="mb-4">
+                <input 
+                    type="text" 
+                    placeholder="Search by Description, Detailed Description, or Item Code..." 
+                    className="input input-bordered w-full"
+                    value={suppliesSearch}
+                    onChange={(e) => setSuppliesSearch(e.target.value)}
+                />
+            </div>
+
+            <div className="overflow-x-auto">
+                <table className="table table-zebra">
+                    <thead>
+                        <tr>
+                            <th>Description</th>
+                            <th className="min-w-[350px]">Detailed Description</th>
+                            <th>Quantity</th>
+                            <th>UOM</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {filteredSupplies.length > 0 ? (
+                            filteredSupplies.map((supply, index) => {
+                                const selectedVariant = getSelectedVariant(supply);
+                                return (
+                                    <tr key={index}>
+                                        <td>{supply.description}</td>
+                                        <td className="min-w-[350px]">
+                                            {supply.variants.length > 1 ? (
+                                                <select 
+                                                    className="select select-bordered w-full h-auto py-2"
+                                                    value={selectedVariant.detailedDescription}
+                                                    onChange={(e) => handleSupplyDetailChange(supply.description, e.target.value)}
+                                                >
+                                                    {supply.variants.map((variant, vIndex) => (
+                                                        <option key={vIndex} value={variant.detailedDescription}>
+                                                            {variant.detailedDescription} - {variant.itemCode}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            ) : (
+                                                <span>{selectedVariant.detailedDescription} - {selectedVariant.itemCode}</span>
+                                            )}
+                                        </td>
+                                        <td>{selectedVariant.quantity}</td>
+                                        <td>{selectedVariant.uom}</td>
+                                        <td>
+                                            <button 
+                                                className="btn btn-sm btn-primary"
+                                                disabled={!selectedApprover}
+                                                onClick={() => {
+                                                    const selectedVariant = getSelectedVariant(supply);
+                                                    addToCart({
+                                                        id: selectedVariant.id,
+                                                        itemCode: selectedVariant.itemCode,
+                                                        description: supply.description,
+                                                        detailedDescription: selectedVariant.detailedDescription,
+                                                        quantity: selectedVariant.quantity,
+                                                        uom: selectedVariant.uom
+                                                    }, 'supplies');
+                                                }}
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                                                </svg>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                );
+                            })
+                        ) : (
+                            <tr>
+                                <td colSpan="5" className="text-center py-4">No supplies found</td>
+                            </tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    )}
+
+{activeTab === "consigned" && isConsignedUser && (
     <div>
-        <h3 className="text-lg font-semibold mb-3">Consigned</h3>
+        <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-semibold mb-3">Consigned</h3>
+            <button 
+                className="btn btn-primary gap-2"
+                onClick={() => setIsCartModalOpen(true)}
+            >
+                <div className="indicator">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                    {cartItems.length > 0 && (
+                        <span className="indicator-item badge badge-secondary">{cartItems.length}</span>
+                    )}
+                </div>
+                Cart Items
+            </button>
+        </div>
         
         {/* Search Bar */}
         <div className="mb-4">
             <input 
                 type="text" 
-                placeholder="Search by Description or Supplier..." 
+                placeholder="Search by Description, Item Code, or Supplier..." 
                 className="input input-bordered w-full"
                 value={consignedSearch}
                 onChange={(e) => setConsignedSearch(e.target.value)}
@@ -454,57 +861,411 @@ export default function OrderMaterial({ tableData, tableFilters }) {
             <table className="table table-zebra">
                 <thead>
                     <tr>
-                        <th>Description</th>
-                        <th className="min-w-[350px]">Supplier</th>
+                        <th className="min-w-[150px]">Item Code</th>
+                        <th className="min-w-[250px]">Description</th>
+                        <th className="min-w-[200px]">Supplier</th>
                         <th>Quantity</th>
                         <th>UOM</th>
                         <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {filteredConsigned.map((consigned, index) => {
-                        const selectedVariant = getSelectedConsignedVariant(consigned);
-                        return (
-                            <tr key={index}>
-                                <td>{consigned.description}</td>
-                                <td className="min-w-[350px]">
-                                    {consigned.variants.length > 1 ? (
-                                        <select 
-                                            className="select select-bordered w-full h-auto py-2"
-                                            value={selectedVariant.supplier}
-                                            onChange={(e) => handleConsignedSupplierChange(consigned.description, e.target.value)}
-                                        >
-                                            {consigned.variants.map((variant, vIndex) => (
-                                                <option key={vIndex} value={variant.supplier}>
-                                                    {variant.supplier}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    ) : (
-                                        <span>{selectedVariant.supplier}</span>
-                                    )}
-                                </td>
-                                <td>{selectedVariant.quantity}</td>
-                                <td>{selectedVariant.uom}</td>
-                                <td>
-                                    <button className="btn btn-sm btn-primary">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-                                        </svg>
-                                    </button>
-                                </td>
-                            </tr>
+                    {consigned.length > 0 ? (() => {
+                        // Filter items that have selected_itemcode and selected_supplier
+                        const itemsWithSelection = consigned.filter(item => 
+                            item.selected_itemcode && item.selected_supplier
                         );
-                    })}
+
+                        // Filter based on search
+                        const filteredItems = itemsWithSelection.filter(item => {
+                            const searchLower = consignedSearch.toLowerCase();
+                            return (
+                                item.mat_description.toLowerCase().includes(searchLower) ||
+                                item.selected_itemcode.toLowerCase().includes(searchLower) ||
+                                item.selected_supplier.toLowerCase().includes(searchLower)
+                            );
+                        });
+
+                        if (filteredItems.length === 0) {
+                            return (
+                                <tr>
+                                    <td colSpan="6" className="text-center py-4">
+                                        {itemsWithSelection.length === 0 
+                                            ? "No consigned items with selected item code and supplier"
+                                            : "No consigned items found matching search"
+                                        }
+                                    </td>
+                                </tr>
+                            );
+                        }
+
+                        return filteredItems.map((item, index) => {
+                            // Find the matching detail based on selected_itemcode and selected_supplier
+                            const matchingDetails = item.details.filter(detail => 
+                                detail.item_code === item.selected_itemcode && 
+                                detail.supplier === item.selected_supplier
+                            );
+
+                            if (matchingDetails.length === 0) {
+                                return null; // Skip this item if no matching details found
+                            }
+
+                            // Sort matching details by expiration (FIFO)
+                            const sortedDetails = matchingDetails.sort((a, b) => {
+                                // Handle items without expiration
+                                if (!a.expiration && !b.expiration) return 0;
+                                if (!a.expiration) return 1;
+                                if (!b.expiration) return -1;
+                                return new Date(a.expiration) - new Date(b.expiration);
+                            });
+
+                            // Get the oldest item (FIFO) and calculate total quantity
+                            const oldestDetail = sortedDetails[0];
+                            const totalQuantity = matchingDetails.reduce((sum, detail) => 
+                                sum + parseFloat(detail.qty || 0), 0
+                            );
+
+                            return (
+                                <tr key={`${item.consigned_no}-${index}`}>
+                                    <td>{item.selected_itemcode}</td>
+                                    <td>{item.mat_description}</td>
+                                    <td>{item.selected_supplier}</td>
+                                    <td>{totalQuantity}</td>
+                                    <td>{oldestDetail.uom}</td>
+                                    <td>
+                                        <button 
+                                            className="btn btn-sm btn-primary"
+                                            disabled={!employeeId.trim() || !selectedFactory || totalQuantity <= 0}
+                                            onClick={() => {
+                                                if (totalQuantity <= 0) {
+                                                    alert('No available quantity for this item');
+                                                    return;
+                                                }
+
+                                                // Find the detail with the oldest expiration that has quantity
+                                                const availableDetail = sortedDetails.find(detail => 
+                                                    parseFloat(detail.qty || 0) > 0
+                                                );
+
+                                                if (!availableDetail) {
+                                                    alert('No available quantity for this item');
+                                                    return;
+                                                }
+
+                                                addToCart({
+                                                    id: availableDetail.id,
+                                                    consignedId: item.id || item.consigned_no,
+                                                    itemCode: item.selected_itemcode,
+                                                    description: item.mat_description,
+                                                    supplier: item.selected_supplier,
+                                                    quantity: parseFloat(availableDetail.qty || 0),
+                                                    uom: availableDetail.uom,
+                                                    expiration: availableDetail.expiration,
+                                                    binLocation: availableDetail.bin_location,
+                                                    // Store all matching details for reference
+                                                    allMatchingDetails: matchingDetails,
+                                                    // Include the current employeeId and factory with each item
+                                                    employeeId: employeeId,
+                                                    factory: selectedFactory
+                                                }, 'consigned');
+                                            }}
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                                            </svg>
+                                        </button>
+                                    </td>
+                                </tr>
+                            );
+                        }).filter(Boolean); // Remove null items
+                    })() : (
+                        <tr>
+                            <td colSpan="6" className="text-center py-4">No consigned items found</td>
+                        </tr>
+                    )}
                 </tbody>
             </table>
         </div>
     </div>
 )}
-</div>
-</div>
-</div>
-</div>
+    </div>
+   </div>
+  </div>
+ </div>
+
+{/* Cart Modal */}
+{isCartModalOpen && (
+    <div className="modal modal-open">
+        <div className="modal-box max-w-6xl">
+            <h3 className="font-bold text-lg mb-4">
+                Added Item List for {
+                    activeTab === "consumable" ? "Consumable and Spare parts" :
+                    activeTab === "supplies" ? "Supplies" :
+                    "Consigned"
+                }
+            </h3>
+            
+            <div className="overflow-x-auto">
+                {cartItems.length > 0 ? (
+                    <>
+                        {/* Consumable Table */}
+                        {activeTab === "consumable" && (
+                            <table className="table table-zebra w-full">
+                                <thead>
+                                    <tr>
+                                        <th>Item Code</th>
+                                        <th>Description</th>
+                                        <th>Detailed Description</th>
+                                        <th>Serial</th>
+                                        <th>Quantity</th>
+                                        <th>UOM</th>
+                                        <th>Request Quantity</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {cartItems
+                                        .filter(item => item.type === "consumable")
+                                        .map((item) => (
+                                            <tr key={item.cartId}>
+                                                <td>{item.itemCode}</td>
+                                                <td>{item.description}</td>
+                                                <td>{item.detailedDescription}</td>
+                                                <td>{item.serial}</td>
+                                                <td>{item.quantity}</td>
+                                                <td>{item.uom}</td>
+                                                <td>
+                                                    <input 
+                                                        type="number" 
+                                                        min="1"
+                                                        max={item.quantity}
+                                                        className="input input-bordered input-sm w-24"
+                                                        value={item.requestQuantity}
+                                                        onChange={(e) => {
+                                                            const newQuantity = parseInt(e.target.value) || 1;
+                                                            setCartItems(prev => 
+                                                                prev.map(cartItem => 
+                                                                    cartItem.cartId === item.cartId 
+                                                                        ? {...cartItem, requestQuantity: newQuantity}
+                                                                        : cartItem
+                                                                )
+                                                            );
+                                                        }}
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <button 
+                                                        className="btn btn-sm btn-error"
+                                                        onClick={() => {
+                                                            setCartItems(prev => 
+                                                                prev.filter(cartItem => cartItem.cartId !== item.cartId)
+                                                            );
+                                                        }}
+                                                    >
+                                                        Remove
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                </tbody>
+                            </table>
+                        )}
+
+                        {/* Supplies Table */}
+                        {activeTab === "supplies" && (
+                            <table className="table table-zebra w-full">
+                                <thead>
+                                    <tr>
+                                        <th>Item Code</th>
+                                        <th>Description</th>
+                                        <th>Detailed Description</th>
+                                        <th>Quantity</th>
+                                        <th>UOM</th>
+                                        <th>Request Quantity</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {cartItems
+                                        .filter(item => item.type === "supplies")
+                                        .map((item) => (
+                                            <tr key={item.cartId}>
+                                                <td>{item.itemCode}</td>
+                                                <td>{item.description}</td>
+                                                <td>{item.detailedDescription}</td>
+                                                <td>{item.quantity}</td>
+                                                <td>{item.uom}</td>
+                                                <td>
+                                                    <input 
+                                                        type="number" 
+                                                        min="1"
+                                                        max={item.quantity}
+                                                        className="input input-bordered input-sm w-24"
+                                                        value={item.requestQuantity}
+                                                        onChange={(e) => {
+                                                            const newQuantity = parseInt(e.target.value) || 1;
+                                                            setCartItems(prev => 
+                                                                prev.map(cartItem => 
+                                                                    cartItem.cartId === item.cartId 
+                                                                        ? {...cartItem, requestQuantity: newQuantity}
+                                                                        : cartItem
+                                                                )
+                                                            );
+                                                        }}
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <button 
+                                                        className="btn btn-sm btn-error"
+                                                        onClick={() => {
+                                                            setCartItems(prev => 
+                                                                prev.filter(cartItem => cartItem.cartId !== item.cartId)
+                                                            );
+                                                        }}
+                                                    >
+                                                        Remove
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                </tbody>
+                            </table>
+                        )}
+
+{/* Consigned Table - Grouped by Employee ID and Factory */}
+{activeTab === "consigned" && isConsignedUser && (() => {
+    // Group items by employeeId and factory
+    const groupedConsignedItems = cartItems
+        .filter(item => item.type === "consigned")
+        .reduce((groups, item) => {
+            const key = `${item.employeeId}|${item.factory}`;
+            if (!groups[key]) {
+                groups[key] = {
+                    employeeId: item.employeeId,
+                    factory: item.factory,
+                    items: []
+                };
+            }
+            groups[key].items.push(item);
+            return groups;
+        }, {});
+
+    const groups = Object.values(groupedConsignedItems);
+
+    return (
+        <div className="space-y-6">
+            {groups.map((group, groupIndex) => (
+                <div key={groupIndex} className="border border-base-300 rounded-lg p-4">
+                    {/* Group Header */}
+                    <div className="bg-base-200 p-3 rounded-lg mb-4">
+                        <div className="grid grid-cols-3 gap-4">
+                            <div>
+                                <span className="font-semibold text-sm">Employee ID:</span>
+                                <span className="ml-2 text-sm">{group.employeeId}</span>
+                            </div>
+                            <div>
+                                <span className="font-semibold text-sm">Factory:</span>
+                                <span className="ml-2 text-sm">{group.factory}</span>
+                            </div>
+                            <div>
+                                <span className="font-semibold text-sm">Station:</span>
+                                <span className="ml-2 text-sm">{emp_data?.emp_station || 'N/A'}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Group Table */}
+                    <table className="table table-zebra w-full">
+                        <thead>
+                            <tr>
+                                <th>Item Code</th>
+                                <th>Description</th>
+                                <th>Supplier</th>
+                                <th>Quantity</th>
+                                <th>UOM</th>
+                                <th>Request Quantity</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {group.items.map((item) => (
+                                <tr key={item.cartId}>
+                                    <td>{item.itemCode}</td>
+                                    <td>{item.description}</td>
+                                    <td>{item.supplier}</td>
+                                    <td>{item.quantity}</td>
+                                    <td>{item.uom}</td>
+                                    <td>
+                                        <input 
+                                            type="number" 
+                                            min="1"
+                                            max={item.quantity}
+                                            className="input input-bordered input-sm w-24"
+                                            value={item.requestQuantity}
+                                            onChange={(e) => {
+                                                const newQuantity = parseInt(e.target.value) || 1;
+                                                setCartItems(prev => 
+                                                    prev.map(cartItem => 
+                                                        cartItem.cartId === item.cartId 
+                                                            ? {...cartItem, requestQuantity: newQuantity}
+                                                            : cartItem
+                                                    )
+                                                );
+                                            }}
+                                        />
+                                    </td>
+                                    <td>
+                                        <button 
+                                            className="btn btn-sm btn-error"
+                                            onClick={() => {
+                                                setCartItems(prev => 
+                                                    prev.filter(cartItem => cartItem.cartId !== item.cartId)
+                                                );
+                                            }}
+                                        >
+                                            Remove
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            ))}
+        </div>
+    );
+})()}
+                    </>
+                ) : (
+                    <div className="text-center py-8 text-gray-500">
+                        No items in cart
+                    </div>
+                )}
+            </div>
+            
+            <div className="modal-action">
+                <button 
+                    className="btn"
+                    onClick={() => setIsCartModalOpen(false)}
+                >
+                    Close
+                </button>
+                {cartItems.filter(item => item.type === activeTab).length > 0 && (
+                    <button 
+                        className="btn btn-primary"
+                        onClick={handleSubmitOrder}
+                    >
+                        Submit Order
+                    </button>
+                )}
+            </div>
+        </div>
+        <div 
+            className="modal-backdrop"
+            onClick={() => setIsCartModalOpen(false)}
+        ></div>
+    </div>
+)}
         </AuthenticatedLayout>
     );
 }

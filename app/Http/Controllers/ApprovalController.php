@@ -2,307 +2,243 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Inertia\Inertia;
-use Carbon\Carbon;
 use App\Models\ConsumableCart;
 use App\Models\SuppliesCart;
-use App\Models\Consumable;
-use App\Models\Supplies;
-use App\Models\SuppliesDetails;
-use App\Models\EmployeeMasterlist;
+use Illuminate\Http\Request;
+use Inertia\Inertia;
+use Illuminate\Support\Facades\DB;
 
 class ApprovalController extends Controller
 {
     public function index(Request $request)
     {
-        try {
-            // Fetch all employee names from masterlist database
-            $employees = EmployeeMasterlist::select('EMPLOYID', 'EMPNAME')
-                ->get()
-                ->keyBy('EMPLOYID')
-                ->toArray();
-                
-        } catch (\Exception $e) {
-            // Log error and continue without employee names
-            \Log::error('Failed to fetch employee masterlist: ' . $e->getMessage());
-            $employees = [];
-        }
-
-        // Get distinct consumable orders grouped by mrs_no
-        $consumables = ConsumableCart::select([
-                'mrs_no',
-                DB::raw('MAX(order_date) as order_date'),
-                DB::raw('MAX(employee_no) as employee_no'),
-                DB::raw('MAX(department) as department'),
-                DB::raw('MAX(approval_status) as approval_status'),
-                DB::raw('COUNT(*) as item_count')
-            ])
-            ->whereNotNull('mrs_no')
-            ->where('mrs_no', '!=', '')
-            ->groupBy('mrs_no')
-            ->orderBy(DB::raw('MAX(order_date)'), 'desc')
+        // Get unique supplies requests grouped by MRS number - ONLY PENDING
+        $suppliesData = SuppliesCart::select('mrs_no', 'order_date', 'emp_name', 'approver_status')
+            ->where(function($query) {
+                $query->where('approver_status', 'pending')
+                      ->orWhereNull('approver_status')
+                      ->orWhere('approver_status', '');
+            })
+            ->distinct()
+            ->orderBy('order_date', 'desc')
             ->get()
-            ->map(function ($item) use ($employees) {
-                $employeeNo = $item->employee_no;
-                $employeeName = isset($employees[$employeeNo]) 
-                    ? $employees[$employeeNo]['EMPNAME'] 
-                    : null;
-
+            ->unique('mrs_no')  
+            ->map(function ($item) {
                 return [
-                    'mrsNo' => $item->mrs_no,
-                    'dateOrder' => Carbon::parse($item->order_date)->format('Y-m-d H:i:s'),
-                    'employeeNo' => $employeeNo,
-                    'employeeName' => $employeeName,
-                    'department' => $item->department,
-                    'status' => $item->approval_status ?? 'pending',
-                    'itemCount' => $item->item_count,
+                    'date_order' => $item->order_date->format('Y-m-d'),
+                    'mrs_no' => $item->mrs_no,
+                    'requestor' => $item->emp_name,
+                    'status' => $this->formatStatus($item->approver_status),
                 ];
-            });
+            })
+            ->values();
 
-        // Get distinct supplies orders grouped by mrs_no
-        $supplies = SuppliesCart::select([
-                'mrs_no',
-                DB::raw('MAX(order_date) as order_date'),
-                DB::raw('MAX(employee_no) as employee_no'),
-                DB::raw('MAX(department) as department'),
-                DB::raw('MAX(approval_status) as approval_status'),
-                DB::raw('COUNT(*) as item_count')
-            ])
-            ->whereNotNull('mrs_no')
-            ->where('mrs_no', '!=', '')
-            ->groupBy('mrs_no')
-            ->orderBy(DB::raw('MAX(order_date)'), 'desc')
+        // Get unique consumable/spare parts requests grouped by MRS number - ONLY PENDING
+        $sparePartsData = ConsumableCart::select('mrs_no', 'order_date', 'emp_name', 'approver_status')
+            ->where(function($query) {
+                $query->where('approver_status', 'pending')
+                      ->orWhereNull('approver_status')
+                      ->orWhere('approver_status', '');
+            })
+            ->distinct()
+            ->orderBy('order_date', 'desc')
             ->get()
-            ->map(function ($item) use ($employees) {
-                $employeeNo = $item->employee_no;
-                $employeeName = isset($employees[$employeeNo]) 
-                    ? $employees[$employeeNo]['EMPNAME'] 
-                    : null;
-
+            ->unique('mrs_no')
+            ->map(function ($item) {
                 return [
-                    'mrsNo' => $item->mrs_no,
-                    'dateOrder' => Carbon::parse($item->order_date)->format('Y-m-d H:i:s'),
-                    'employeeNo' => $employeeNo,
-                    'employeeName' => $employeeName,
-                    'department' => $item->department,
-                    'status' => $item->approval_status ?? 'pending',
-                    'itemCount' => $item->item_count,
+                    'date_order' => $item->order_date->format('Y-m-d'),
+                    'mrs_no' => $item->mrs_no,
+                    'requestor' => $item->emp_name,
+                    'status' => $this->formatStatus($item->approver_status),
                 ];
-            });
+            })
+            ->values();
 
         return Inertia::render('Approval', [
-            'consumables' => $consumables,
-            'supplies' => $supplies,
-            'appPrefix' => '/' . env('APP_NAME', 'ims'),
+            'suppliesData' => $suppliesData,
+            'sparePartsData' => $sparePartsData,
         ]);
     }
 
-    /**
-     * Get order details including items for a specific MRS
-     */
-    public function show($type, $mrsNo)
+    public function getRequestDetails(Request $request)
     {
-        try {
-            $employees = EmployeeMasterlist::select('EMPLOYID', 'EMPNAME')
-                ->get()
-                ->keyBy('EMPLOYID')
-                ->toArray();
-                
-        } catch (\Exception $e) {
-            \Log::error('Failed to fetch employee masterlist: ' . $e->getMessage());
-            $employees = [];
+        $mrsNo = $request->query('mrs_no');
+        $type = $request->query('type');
+
+        if (!$mrsNo || !$type) {
+            return back()->withErrors(['error' => 'Missing required parameters']);
         }
 
-        // Determine which model to use based on type
-        $model = $type === 'consumable' ? ConsumableCart::class : SuppliesCart::class;
-        
-        // Get all cart items for this MRS number
-        $cartItems = $model::where('mrs_no', $mrsNo)
-            ->orderBy('created_at', 'asc')
-            ->get();
-
-        if ($cartItems->isEmpty()) {
-            return response()->json(['error' => 'No items found for this MRS'], 404);
+        // Determine which model to use based on type - ONLY PENDING ITEMS
+        if ($type === 'supplies') {
+            $items = SuppliesCart::where('mrs_no', $mrsNo)
+                ->where(function($query) {
+                    $query->where('approver_status', 'pending')
+                          ->orWhereNull('approver_status')
+                          ->orWhere('approver_status', '');
+                })
+                ->get();
+            $header = SuppliesCart::where('mrs_no', $mrsNo)->first();
+        } else if ($type === 'spareParts') {
+            $items = ConsumableCart::where('mrs_no', $mrsNo)
+                ->where(function($query) {
+                    $query->where('approver_status', 'pending')
+                          ->orWhereNull('approver_status')
+                          ->orWhere('approver_status', '');
+                })
+                ->get();
+            $header = ConsumableCart::where('mrs_no', $mrsNo)->first();
+        } else {
+            return back()->withErrors(['error' => 'Invalid type']);
         }
 
-        // Get order header information from the first item
-        $firstItem = $cartItems->first();
-        
-        // Get all items for this MRS
-$items = $cartItems->map(function ($item) use ($type) {
-    // Common fields for both types
-    $itemData = [
-        'itemCode' => $item->Itemcode ?? $item->stock_no ?? $item->itemCode ?? 'N/A',
-        'mat_description' => $item->mat_description ?? $item->description ?? 'N/A',
-        'quantity' => $item->request_qty ?? $item->quantity ?? $item->qty ?? 0,
-        'unit' => $item->uom ?? $item->unit ?? $item->unit_of_measure ?? 'pcs',
-        'unitPrice' => $item->price ?? 0,
-        'totalPrice' => (($item->request_qty ?? $item->quantity ?? 0) * ($item->price ?? 0)),
-        // Additional fields
-        'brand' => $item->brand ?? null,
-        'category' => $item->category ?? null,
-        'remarks' => $item->remarks ?? null,
-        // Always include detailed description for both types
-        'detailedDescription' => $item->Long_description ?? 
-                               $item->detailed_description ?? 
-                               $item->item_description ?? 
-                               $item->mat_description ?? 'N/A', // Fallback to main description
-    ];
-    
-    return $itemData;
-})->toArray();
+        if (!$header) {
+            return back()->withErrors(['error' => 'Request not found']);
+        }
 
-        $employeeNo = $firstItem->employee_no;
-        $employeeName = isset($employees[$employeeNo]) 
-            ? $employees[$employeeNo]['EMPNAME'] 
-            : null;
+        // Format the response
+        $modalData = [
+            'type' => $type,
+            'header' => [
+                'date_order' => $header->order_date->format('Y-m-d'),
+                'mrs_no' => $header->mrs_no,
+                'requestor' => $header->emp_name,
+                'status' => $this->formatStatus($header->approver_status),
+            ],
+            'items' => $items->map(function ($item) use ($type) {
+                $data = [
+                    'id' => $item->id,
+                    'itemCode' => $item->itemCode,
+                    'material_description' => $item->material_description,
+                    'detailed_description' => $item->detailed_description,
+                    'quantity' => $item->quantity,
+                    'uom' => $item->uom,
+                ];
 
-        $orderData = [
-            'mrsNo' => $firstItem->mrs_no,
-            'dateOrder' => Carbon::parse($firstItem->order_date)->format('Y-m-d H:i:s'),
-            'employeeNo' => $employeeNo,
-            'employeeName' => $employeeName,
-            'department' => $firstItem->department,
-            'status' => $firstItem->approval_status ?? 'pending',
-            'items' => $items,
-            'remarks' => $firstItem->remarks ?? null,
-            'totalItems' => $cartItems->count(),
-            'totalQuantity' => $cartItems->sum('request_qty') ?? $cartItems->sum('quantity'),
-            'grandTotal' => $cartItems->sum(function ($item) {
-                return (($item->request_qty ?? $item->quantity ?? 0) * ($item->price ?? 0));
-            }),
-            'type' => $type, // Add type for frontend reference
+                // Handle different column names between tables
+                if ($type === 'supplies') {
+                    $data['request_qty'] = $item->request_qty;
+                } else {
+                    $data['request_qty'] = $item->request_quantity;
+                }
+
+                return $data;
+            })
         ];
 
-        return response()->json($orderData);
+        return Inertia::render('Approval', [
+            'modalData' => $modalData,
+            'suppliesData' => $request->session()->get('suppliesData', []),
+            'sparePartsData' => $request->session()->get('sparePartsData', []),
+        ]);
     }
 
-    /**
-     * Approve an MRS order
-     */
-    public function approve($type, $mrsNo, Request $request)
+    public function approveItems(Request $request)
     {
+        $request->validate([
+            'item_ids' => 'required|array',
+            'item_ids.*' => 'required|integer',
+            'mrs_no' => 'required|string',
+            'type' => 'required|string|in:supplies,spareParts'
+        ]);
+
         try {
-            // Determine which model to use based on type
-            $model = $type === 'consumable' ? ConsumableCart::class : SuppliesCart::class;
-            
-            // Get all cart items for this MRS number
-            $cartItems = $model::where('mrs_no', $mrsNo)->get();
-            
-            if ($cartItems->isEmpty()) {
-                return back()->with('error', 'No items found for this MRS');
+            DB::beginTransaction();
+
+            $itemIds = $request->item_ids;
+            $type = $request->type;
+
+            if ($type === 'supplies') {
+                SuppliesCart::whereIn('id', $itemIds)
+                    ->update(['approver_status' => 'approved']);
+            } else {
+                ConsumableCart::whereIn('id', $itemIds)
+                    ->update(['approver_status' => 'approved']);
             }
 
-            // Check if any item is already approved/rejected
-            foreach ($cartItems as $item) {
-                if ($item->approval_status !== 'pending') {
-                    return back()->with('error', 'This order has already been processed');
-                }
-            }
+            DB::commit();
 
-            // Update all items to approved status
-            $model::where('mrs_no', $mrsNo)
-                ->update([
-                    'approval_status' => 'approved',
-                    'updated_at' => now()
-                ]);
-
-            // Log the approval
-            \Log::info("MRS {$mrsNo} approved for {$type}");
-
-            return back()->with('success', 'Order approved successfully');
+            return redirect()->route('approval')
+                ->with('success', 'Items approved successfully');
 
         } catch (\Exception $e) {
-            \Log::error('Error approving order: ' . $e->getMessage());
-            return back()->with('error', 'Failed to approve order');
+            DB::rollBack();
+            \Log::error('Error approving items: ' . $e->getMessage());
+            
+            return back()->withErrors([
+                'message' => 'Failed to approve items: ' . $e->getMessage()
+            ]);
+        }
+    }
+
+    public function rejectItems(Request $request)
+    {
+        $request->validate([
+            'item_ids' => 'required|array',
+            'item_ids.*' => 'required|integer',
+            'mrs_no' => 'required|string',
+            'type' => 'required|string|in:supplies,spareParts',
+            'reason' => 'required|string'
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            $itemIds = $request->item_ids;
+            $type = $request->type;
+
+            if ($type === 'supplies') {
+                SuppliesCart::whereIn('id', $itemIds)
+                    ->update([
+                        'approver_status' => 'rejected',
+                        // If you have a rejection_reason column, uncomment this:
+                        // 'rejection_reason' => $request->reason
+                    ]);
+            } else {
+                ConsumableCart::whereIn('id', $itemIds)
+                    ->update([
+                        'approver_status' => 'rejected',
+                        // If you have a rejection_reason column, uncomment this:
+                        // 'rejection_reason' => $request->reason
+                    ]);
+            }
+
+            DB::commit();
+
+            return redirect()->route('approval')
+                ->with('success', 'Items rejected successfully');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('Error rejecting items: ' . $e->getMessage());
+            
+            return back()->withErrors([
+                'message' => 'Failed to reject items: ' . $e->getMessage()
+            ]);
         }
     }
 
     /**
-     * Reject an MRS order and return quantities to inventory
+     * Format the status from database to display format
      */
-    public function reject($type, $mrsNo, Request $request)
+    private function formatStatus($status)
     {
-        try {
-            DB::connection('newstore')->beginTransaction();
-
-            // Determine which model to use based on type
-            $model = $type === 'consumable' ? ConsumableCart::class : SuppliesCart::class;
-            
-            // Get all cart items for this MRS number
-            $cartItems = $model::where('mrs_no', $mrsNo)->get();
-            
-            if ($cartItems->isEmpty()) {
-                DB::connection('newstore')->rollBack();
-                return back()->with('error', 'No items found for this MRS');
-            }
-
-            // Check if any item is already approved/rejected
-            foreach ($cartItems as $item) {
-                if ($item->approval_status !== 'pending') {
-                    DB::connection('newstore')->rollBack();
-                    return back()->with('error', 'This order has already been processed');
-                }
-            }
-
-            // Return quantities to inventory based on type
-            if ($type === 'consumable') {
-                foreach ($cartItems as $cartItem) {
-                    $consumable = Consumable::where('Itemcode', $cartItem->Itemcode)->first();
-                    
-                    if ($consumable) {
-                        // Add back the requested quantity
-                        $consumable->qty = $consumable->qty + $cartItem->request_qty;
-                        $consumable->save();
-                        
-                        \Log::info("Returned {$cartItem->request_qty} to consumable {$cartItem->Itemcode}. New quantity: {$consumable->qty}");
-                    } else {
-                        \Log::warning("Consumable {$cartItem->Itemcode} not found when returning quantity");
-                    }
-                }
-            } else { // supplies
-                foreach ($cartItems as $cartItem) {
-                    // Find the supply and its first detail
-                    $supply = Supplies::where('itemcode', $cartItem->Itemcode)->first();
-                    
-                    if ($supply) {
-                        $firstDetail = $supply->details()->first();
-                        
-                        if ($firstDetail) {
-                            // Add back the requested quantity
-                            $firstDetail->qty = $firstDetail->qty + $cartItem->request_qty;
-                            $firstDetail->save();
-                            
-                            \Log::info("Returned {$cartItem->request_qty} to supply detail {$firstDetail->id} (itemcode: {$cartItem->Itemcode}). New quantity: {$firstDetail->qty}");
-                        } else {
-                            \Log::warning("Supply detail not found for itemcode {$cartItem->Itemcode} when returning quantity");
-                        }
-                    } else {
-                        \Log::warning("Supply {$cartItem->Itemcode} not found when returning quantity");
-                    }
-                }
-            }
-
-            // Update all items to rejected status
-            $model::where('mrs_no', $mrsNo)
-                ->update([
-                    'approval_status' => 'rejected',
-                    'updated_at' => now()
-                ]);
-
-            DB::connection('newstore')->commit();
-
-            // Log the rejection
-            \Log::info("MRS {$mrsNo} rejected for {$type}. Quantities returned to inventory.");
-
-            return back()->with('success', 'Order rejected successfully and quantities returned to inventory');
-
-        } catch (\Exception $e) {
-            DB::connection('newstore')->rollBack();
-            \Log::error('Error rejecting order: ' . $e->getMessage());
-            return back()->with('error', 'Failed to reject order: ' . $e->getMessage());
+        if (empty($status)) {
+            return 'Pending';
         }
+
+        // Normalize the status
+        $status = strtolower(trim($status));
+
+        // Map common status values
+        $statusMap = [
+            'approved' => 'Approved',
+            'pending' => 'Pending',
+            'rejected' => 'Rejected',
+            'deny' => 'Rejected',
+            'denied' => 'Rejected',
+        ];
+
+        return $statusMap[$status] ?? ucfirst($status);
     }
 }

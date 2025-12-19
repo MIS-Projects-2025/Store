@@ -18,20 +18,20 @@ export default function NavLinks() {
 
     // Navigation configuration
     const navItems = [
-        // {
-        //     type: 'link',
-        //     show: canView(['employee', 'consigned', 'store']),
-        //     href: route("dashboard"),
-        //     label: "Dashboard",
-        //     icon: <HiSquares2X2 className="w-5 h-5" />
-        // },
-        // {
-        //     type: 'link',
-        //     show: canView(['store']),
-        //     href: route("materialissuance"),
-        //     label: "Material Issuance",
-        //     icon: <HiSquares2X2 className="w-5 h-5" />
-        // },
+        {
+            type: 'link',
+            show: canView(['employee', 'consigned', 'store']),
+            href: route("dashboard"),
+            label: "Dashboard",
+            icon: <HiSquares2X2 className="w-5 h-5" />
+        },
+        {
+            type: 'link',
+            show: canView(['store']),
+            href: route("material-issuance"),
+            label: "Material Issuance",
+            icon: <HiSquares2X2 className="w-5 h-5" />
+        },
         {
             type: 'dropdown',
             show: canView(['store']),
@@ -61,18 +61,18 @@ export default function NavLinks() {
         },
         {
             type: 'link',
-            show: canView(['employee', 'store']),
+            show: canView(['employee', 'store', 'consigned']),
             href: route("order-material"),
             label: "Order Material",
             icon: <HiSquares2X2 className="w-5 h-5" />
         },
-        // {
-        //     type: 'link',
-        //     show: canView(['employee']) && emp_data?.emp_position != 1,
-        //     href: route("approval"),
-        //     label: "Approval Request",
-        //     icon: <HiSquares2X2 className="w-5 h-5" />
-        // }
+        {
+            type: 'link',
+            show: canView(['employee']) && emp_data?.emp_position != 1,
+            href: route("approval"),
+            label: "Approval Request",
+            icon: <HiSquares2X2 className="w-5 h-5" />
+        }
     ];
 
     return (

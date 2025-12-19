@@ -1,239 +1,319 @@
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout";
 import { Head, usePage, router } from "@inertiajs/react";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
-export default function Consigned({ tableData, tableFilters }) {
+export default function Consigned({ tableData, tableFilters, nextConsignedNo }) {
     const props = usePage().props;
-    const [isImporting, setIsImporting] = useState(false);
     const [mainSearchQuery, setMainSearchQuery] = useState("");
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [isSecondModalOpen, setIsSecondModalOpen] = useState(false);
-    const [isViewModalOpen, setIsViewModalOpen] = useState(false);
-    const [viewingItem, setViewingItem] = useState(null);
-    const [isAddingToExisting, setIsAddingToExisting] = useState(false);
-    const [existingConsignedNo, setExistingConsignedNo] = useState(null);
-    const [isQuantityModalOpen, setIsQuantityModalOpen] = useState(false);
+    const [isImporting, setIsImporting] = useState(false);
+    const [viewDetailsModal, setViewDetailsModal] = useState(false);
+    const [selectedConsigned, setSelectedConsigned] = useState(null);
+    const [editingDetails, setEditingDetails] = useState(false);
+    const [editableDetails, setEditableDetails] = useState([]);
+    const [addQuantityModal, setAddQuantityModal] = useState(false);
     const [quantitySearchQuery, setQuantitySearchQuery] = useState("");
-    const [filteredItems, setFilteredItems] = useState([]);
-    const [selectedItem, setSelectedItem] = useState(null);
-    const [quantityInput, setQuantityInput] = useState("");
+    const [filteredConsignedItems, setFilteredConsignedItems] = useState([]);
+    const [quantityInputs, setQuantityInputs] = useState({});
     const [isAddingQuantity, setIsAddingQuantity] = useState(false);
-    const [isSearching, setIsSearching] = useState(false);
-    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-    const [itemToDelete, setItemToDelete] = useState(null);
-    const [deleteConfirmText, setDeleteConfirmText] = useState("");
-    const [isDeleting, setIsDeleting] = useState(false);
-    const [selectedItems, setSelectedItems] = useState([]);
-    const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
-    const [historyData, setHistoryData] = useState([]);
-    const [historyItem, setHistoryItem] = useState(null);
-    const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-    const [isDeleteDetailModalOpen, setIsDeleteDetailModalOpen] = useState(false);
+    const [addDetailsModal, setAddDetailsModal] = useState(false);
+    const [deleteConfirmModal, setDeleteConfirmModal] = useState(false);
     const [detailToDelete, setDetailToDelete] = useState(null);
-    const [deleteDetailConfirmText, setDeleteDetailConfirmText] = useState("");
-    const [isDeletingDetail, setIsDeletingDetail] = useState(false);
-    const [isDetailHistoryModalOpen, setIsDetailHistoryModalOpen] = useState(false);
-    const [detailHistoryData, setDetailHistoryData] = useState([]);
-    const [detailHistoryItem, setDetailHistoryItem] = useState(null);
+    const [deleteConfirmText, setDeleteConfirmText] = useState('');
+    const [deleteConsignedModal, setDeleteConsignedModal] = useState(false);
+    const [consignedToDelete, setConsignedToDelete] = useState(null);
+    const [deleteConsignedConfirmText, setDeleteConsignedConfirmText] = useState('');
+    const [historyModal, setHistoryModal] = useState(false);
+    const [historyType, setHistoryType] = useState('');
+    const [historyData, setHistoryData] = useState([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
+    const [selectedDetailForHistory, setSelectedDetailForHistory] = useState(null);
 
-    const handleDeleteDetailClick = (detail) => {
-    setDetailToDelete(detail);
-    setDeleteDetailConfirmText("");
-    setIsDeleteDetailModalOpen(true);
-};
+    const getActionLabel = (action) => {
+        const labels = {
+            'created': 'Created',
+            'updated': 'Updated',
+            'deleted': 'Deleted',
+            'quantity_added': 'Quantity Added',
+            'detail_created': 'Detail Created',
+            'detail_updated': 'Detail Updated',
+            'detail_deleted': 'Detail Deleted'
+        };
+        return labels[action] || action;
+    };
 
-const handleCloseDeleteDetailModal = () => {
-    setIsDeleteDetailModalOpen(false);
-    setDetailToDelete(null);
-    setDeleteDetailConfirmText("");
-};
+    const getActionColor = (action) => {
+        const colors = {
+            'created': '#10B981', // green
+            'updated': '#3B82F6', // blue
+            'deleted': '#EF4444', // red
+            'quantity_added': '#8B5CF6', // purple
+            'detail_created': '#10B981', // green
+            'detail_updated': '#3B82F6', // blue
+            'detail_deleted': '#EF4444'  // red
+        };
+        return colors[action] || '#6B7280'; // default gray
+    };
 
-const handleConfirmDeleteDetail = () => {
-    if (deleteDetailConfirmText !== "CONFIRM") {
-        alert("Please type CONFIRM to delete this detail");
-        return;
-    }
-
-    if (!detailToDelete) return;
-
-    setIsDeletingDetail(true);
-
-    router.delete(route('consigned.destroyDetail', detailToDelete.id), {
-        preserveState: true,
-        preserveScroll: true,
-        onSuccess: () => {
-            alert('Detail deleted successfully');
-            handleCloseDeleteDetailModal();
-            // Refresh the viewing item to show updated details
-            if (viewingItem) {
-                handleView(viewingItem.id);
-            }
-        },
-        onError: (errors) => {
-            console.error('Delete error:', errors);
-            alert('Failed to delete detail: ' + (errors.error || 'Unknown error'));
-        },
-        onFinish: () => {
-            setIsDeletingDetail(false);
-        }
-    });
-};
-
-    // Handle viewing consigned item history
-const handleViewHistory = async (item) => {
-    setHistoryItem(item);
-    setIsLoadingHistory(true);
-    setIsHistoryModalOpen(true);
+    const openConsignedHistory = async (consigned) => {
+    setHistoryType('consigned');
+    setSelectedConsigned(consigned);
+    setHistoryLoading(true);
+    setHistoryModal(true);
     
     try {
-        const response = await fetch(route('consigned.history', item.id), {
-            headers: {
-                'Accept': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest'
-            }
-        });
+            const response = await fetch(route('consigned.history', consigned.id));
+            const data = await response.json();
+            setHistoryData(data);
+        } catch (error) {
+            console.error('Error fetching consigned history:', error);
+            setHistoryData([]);
+        } finally {
+            setHistoryLoading(false);
+        }
+    };
+
+    const openDetailHistory = async (detail) => {
+        setHistoryType('detail');
+        setSelectedDetailForHistory(detail);
+        setHistoryLoading(true);
+        setHistoryModal(true);
         
-        if (response.ok) {
+        try {
+            const response = await fetch(route('consigned.getDetailHistory', detail.id));
             const data = await response.json();
             setHistoryData(data.history || []);
+        } catch (error) {
+            console.error('Error fetching detail history:', error);
+            setHistoryData([]);
+        } finally {
+            setHistoryLoading(false);
         }
-    } catch (error) {
-        console.error('Error fetching history:', error);
-        alert('Failed to load history');
-    } finally {
-        setIsLoadingHistory(false);
-    }
-};
+    };
 
-const handleCloseHistoryModal = () => {
-    setIsHistoryModalOpen(false);
-    setHistoryData([]);
-    setHistoryItem(null);
-};
+    const closeHistoryModal = () => {
+        setHistoryModal(false);
+        setHistoryType('');
+        setHistoryData([]);
+        setSelectedDetailForHistory(null);
+        setHistoryLoading(false);
+    };
 
-// Handle viewing detail history
-const handleViewDetailHistory = async (detail) => {
-    setDetailHistoryItem(detail);
-    setIsLoadingHistory(true);
-    setIsDetailHistoryModalOpen(true);
-    
-    try {
-        const response = await fetch(route('consigned.detailHistory', detail.id), {
-            headers: {
-                'Accept': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest'
+    const [editingRow, setEditingRow] = useState(null);
+    const [editFormData, setEditFormData] = useState({
+        mat_description: '',
+        category: ''
+    });
+
+    const openDeleteConsignedModal = (consigned) => {
+        setConsignedToDelete(consigned);
+        setDeleteConsignedConfirmText('');
+        setDeleteConsignedModal(true);
+    };
+
+    const closeDeleteConsignedModal = () => {
+        setDeleteConsignedModal(false);
+        setConsignedToDelete(null);
+        setDeleteConsignedConfirmText('');
+    };
+
+    const handleConfirmDeleteConsigned = () => {
+        if (deleteConsignedConfirmText.toLowerCase() !== 'confirm') {
+            alert('Please type "confirm" to delete this item');
+            return;
+        }
+
+        setIsSaving(true);
+
+        router.delete(route('consigned.destroy', consignedToDelete.id), {
+            onSuccess: () => {
+                closeDeleteConsignedModal();
+                setIsSaving(false);
+                alert('Consigned item and all related details deleted successfully!');
+            },
+            onError: (errors) => {
+                console.error('Error deleting consigned item:', errors);
+                setIsSaving(false);
+                alert('Failed to delete item. Please try again.');
             }
         });
-        
-        if (response.ok) {
-            const data = await response.json();
-            setDetailHistoryData(data.history || []);
+    };
+
+    const openDeleteConfirmModal = (detail) => {
+        setDetailToDelete(detail);
+        setDeleteConfirmText('');
+        setDeleteConfirmModal(true);
+    };
+
+    const closeDeleteConfirmModal = () => {
+        setDeleteConfirmModal(false);
+        setDetailToDelete(null);
+        setDeleteConfirmText('');
+    };
+
+    const handleConfirmDelete = () => {
+        if (deleteConfirmText.toLowerCase() !== 'confirm') {
+            alert('Please type "confirm" to delete this item');
+            return;
         }
-    } catch (error) {
-        console.error('Error fetching detail history:', error);
-        alert('Failed to load detail history');
-    } finally {
-        setIsLoadingHistory(false);
-    }
-};
 
-const handleCloseDetailHistoryModal = () => {
-    setIsDetailHistoryModalOpen(false);
-    setDetailHistoryData([]);
-    setDetailHistoryItem(null);
-};
+        setIsSaving(true);
 
-// Handle deleting a detail
-const handleDeleteDetail = (detail) => {
-    if (!confirm(`Are you sure you want to delete item code: ${detail.item_code}?`)) {
-        return;
-    }
-
-    router.delete(route('consigned.destroyDetail', detail.id), {
-        preserveState: true,
-        preserveScroll: true,
-        onSuccess: () => {
-            alert('Detail deleted successfully');
-            // Refresh the viewing item to show updated details
-            if (viewingItem) {
-                handleView(viewingItem.id);
+        router.delete(route('consigned.deleteDetail', detailToDelete.id), {
+            onSuccess: () => {
+                // Remove from editableDetails state
+                setEditableDetails(editableDetails.filter(d => d.id !== detailToDelete.id));
+                
+                // Update selectedConsigned state
+                setSelectedConsigned({
+                    ...selectedConsigned,
+                    details: selectedConsigned.details.filter(d => d.id !== detailToDelete.id)
+                });
+                
+                closeDeleteConfirmModal();
+                setIsSaving(false);
+                alert('Detail deleted successfully!');
+            },
+            onError: (errors) => {
+                console.error('Error deleting detail:', errors);
+                setIsSaving(false);
+                alert('Failed to delete detail. Please try again.');
             }
-        },
-        onError: (errors) => {
-            console.error('Delete error:', errors);
-            alert('Failed to delete detail: ' + (errors.error || 'Unknown error'));
-        }
-    });
-};
+        });
+    };
 
-    const handleDeleteClick = (item) => {
-    setItemToDelete(item);
-    setDeleteConfirmText("");
-    setIsDeleteModalOpen(true);
-};
+    const openAddQuantityModal = () => {
+        setAddQuantityModal(true);
+        setQuantitySearchQuery("");
+        setFilteredConsignedItems([]);
+        setQuantityInputs({});
+    };
 
-const handleCloseDeleteModal = () => {
-    setIsDeleteModalOpen(false);
-    setItemToDelete(null);
-    setDeleteConfirmText("");
-};
+    const closeAddQuantityModal = () => {
+        setAddQuantityModal(false);
+        setQuantitySearchQuery("");
+        setFilteredConsignedItems([]);
+        setQuantityInputs({});
+    };
 
-const handleConfirmDelete = () => {
-    if (deleteConfirmText !== "CONFIRM") {
-        alert("Please type CONFIRM to delete this item");
-        return;
-    }
-
-    if (!itemToDelete) return;
-
-    setIsDeleting(true);
-
-    router.delete(route('consigned.destroy', itemToDelete.id), {
-        preserveState: true,
-        preserveScroll: true,
-        onSuccess: () => {
-            alert('Item and all related details deleted successfully');
-            handleCloseDeleteModal();
-        },
-        onError: (errors) => {
-            console.error('Delete error:', errors);
-            alert('Failed to delete item: ' + (errors.error || 'Unknown error'));
-        },
-        onFinish: () => {
-            setIsDeleting(false);
-        }
-    });
-};
-
-    const [formData, setFormData] = useState({
+    const handleQuantitySearch = (e) => {
+        const query = e.target.value;
+        setQuantitySearchQuery(query);
         
-        mat_description: "",
-        category: "",
-        item_code: "",
-        supplier: "",
-        bin_location: "",
-        expiration: "",
-        qty: "",
-        uom: "",
-        qty_per_box: "",
-        minimum: "",
-        maximum: "",
-        price: ""
+        if (query.trim().length >= 2) {
+            // Create an array to store all matching detail rows
+            const matchingDetails = [];
+            
+            consignedItems.forEach(item => {
+                // Check if the main description matches
+                const descMatches = item.mat_description?.toLowerCase().includes(query.toLowerCase());
+                
+                // If item has details, check each detail
+                if (item.details && item.details.length > 0) {
+                    item.details.forEach(detail => {
+                        const detailMatches = 
+                            detail.item_code?.toLowerCase().includes(query.toLowerCase()) ||
+                            detail.supplier?.toLowerCase().includes(query.toLowerCase()) ||
+                            descMatches;
+                        
+                        if (detailMatches) {
+                            matchingDetails.push({
+                                id: item.id,
+                                detailId: detail.id,
+                                consigned_no: item.consigned_no,
+                                mat_description: item.mat_description,
+                                category: item.category,
+                                item_code: detail.item_code,
+                                supplier: detail.supplier,
+                                expiration: detail.expiration,
+                                uom: detail.uom,
+                                qty: detail.qty,
+                                bin_location: detail.bin_location
+                            });
+                        }
+                    });
+                }
+            });
+            
+            setFilteredConsignedItems(matchingDetails);
+        } else {
+            setFilteredConsignedItems([]);
+        }
+    };
+
+    const handleQuantityInputChange = (detailId, value) => {
+        setQuantityInputs(prev => ({
+            ...prev,
+            [detailId]: value
+        }));
+    };
+
+    const handleSaveQuantities = () => {
+        const itemsToUpdate = Object.entries(quantityInputs)
+            .filter(([detailId, qty]) => qty && parseFloat(qty) > 0)
+            .map(([detailId, qty]) => ({
+                detail_id: parseInt(detailId),
+                quantity_to_add: parseFloat(qty)
+            }));
+
+        if (itemsToUpdate.length === 0) {
+            alert('Please enter at least one quantity to add');
+            return;
+        }
+
+        setIsAddingQuantity(true);
+
+        router.post(route('consigned.addQuantity'), {
+            items: itemsToUpdate
+        }, {
+            onSuccess: () => {
+                closeAddQuantityModal();
+                setIsAddingQuantity(false);
+                alert('Quantities updated successfully!');
+            },
+            onError: (errors) => {
+                console.error('Error adding quantities:', errors);
+                setIsAddingQuantity(false);
+                alert('Failed to update quantities. Please try again.');
+            }
+        });
+    };
+
+    const [newDetailData, setNewDetailData] = useState({
+        item_code: '',
+        supplier: '',
+        expiration: '',
+        uom: '',
+        qty: '',
+        qty_per_box: '',
+        minimum: '',
+        maximum: '',
+        price: '',
+        bin_location: ''
     });
-    
-    // New state for inline editing in main table
-    const [editingItemId, setEditingItemId] = useState(null);
-    const [editFormData, setEditFormData] = useState({
-        mat_description: "",
-        category: ""
+
+    // Multi-step Modal State
+    const [modalStep, setModalStep] = useState(0);
+    const [newItem, setNewItem] = useState({
+        description: '',
+        category: ''
     });
-    
-    // New state for view modal inline editing
-    const [isEditing, setIsEditing] = useState(false);
-    const [editingDetails, setEditingDetails] = useState([]);
+    const [consignedDetails, setConsignedDetails] = useState({
+        item_code: '',
+        supplier: '',
+        expiration: '',
+        uom: '',
+        qty: '',
+        qty_per_box: '',
+        minimum: '',
+        maximum: '',
+        price: '',
+        bin_location: ''
+    });
+
+    const [addedItems, setAddedItems] = useState([]);
     const [isSaving, setIsSaving] = useState(false);
+    const [tempConsignedNo, setTempConsignedNo] = useState('');
     
-    // Get consigned data from props or use empty array
     const consignedItems = tableData?.data || [];
     const pagination = tableData?.pagination || {
         from: 0,
@@ -244,51 +324,6 @@ const handleConfirmDelete = () => {
         per_page: 10
     };
 
-    // Initialize editing details when viewingItem changes
-    useEffect(() => {
-        if (viewingItem && viewingItem.details) {
-            setEditingDetails([...viewingItem.details.map(detail => ({
-                ...detail,
-                // Format date for input field
-                expiration: detail.expiration ? detail.expiration.split(' ')[0] : ''
-            }))]);
-        }
-    }, [viewingItem]);
-
-useEffect(() => {
-    if (quantitySearchQuery.trim() === "") {
-        setFilteredItems([]);
-        return;
-    }
-
-    // Debounce search
-    const timeoutId = setTimeout(async () => {
-        setIsSearching(true);
-        try {
-            const response = await fetch(
-                route('consigned.searchDetails') + '?search=' + encodeURIComponent(quantitySearchQuery),
-                {
-                    headers: {
-                        'Accept': 'application/json',
-                        'X-Requested-With': 'XMLHttpRequest'
-                    }
-                }
-            );
-            
-            if (response.ok) {
-                const data = await response.json();
-                setFilteredItems(data);
-            }
-        } catch (error) {
-            console.error('Error searching items:', error);
-        } finally {
-            setIsSearching(false);
-        }
-    }, 300); // 300ms debounce
-
-    return () => clearTimeout(timeoutId);
-}, [quantitySearchQuery]);
-
     const handleImport = () => {
         document.getElementById('excel-file-input').click();
     };
@@ -297,50 +332,25 @@ useEffect(() => {
         const file = e.target.files[0];
         if (file) {
             setIsImporting(true);
-            // Add your import logic here
-            setTimeout(() => setIsImporting(false), 2000); // Simulated import
+            setTimeout(() => setIsImporting(false), 2000);
         }
     };
 
     const handleClearSearch = () => {
         setMainSearchQuery("");
-    };
-
-    const handleView = async (consignedId) => {
-        try {
-            // Fetch the item details
-            const response = await fetch(route('consigned.show', consignedId), {
-                headers: {
-                    'Accept': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
-            });
-            
-            if (response.ok) {
-                const data = await response.json();
-                setViewingItem(data.consignedItem);
-                setIsViewModalOpen(true);
-                setIsEditing(false); // Reset editing mode when opening view
-            }
-        } catch (error) {
-            console.error('Error fetching item details:', error);
-            alert('Failed to load item details');
-        }
-    };
-
-    const handleCloseViewModal = () => {
-        setIsViewModalOpen(false);
-        setViewingItem(null);
-        setIsEditing(false);
-        setEditingDetails([]);
+        router.get(route('consigned'), {
+            search: "",
+            page: 1
+        }, {
+            preserveState: true,
+            preserveScroll: true
+        });
     };
 
     const handleSearch = (e) => {
         const query = e.target.value;
         setMainSearchQuery(query);
         
-        // Implement search logic here
-        // You can debounce this or trigger on enter key
         if (query.length >= 3 || query.length === 0) {
             router.get(route('consigned'), {
                 search: query,
@@ -363,435 +373,347 @@ useEffect(() => {
         });
     };
 
-    const handleOpenModal = () => {
-        setIsModalOpen(true);
-        setIsAddingToExisting(false);
-        setExistingConsignedNo(null);
-        setFormData({
-            mat_description: "",
-            category: "",
-            item_code: "",
-            supplier: "",
-            bin_location: "",
-            expiration: "",
-            qty: "",
-            uom: "",
-            qty_per_box: "",
-            minimum: "",
-            maximum: "",
-            price: ""
+    const [rowSelections, setRowSelections] = useState(
+        consignedItems.reduce((acc, item) => {
+            acc[item.id] = item.selected_itemcode ?? "";
+            return acc;
+        }, {})
+    );
+
+    const openAddItemModal = () => {
+        setNewItem({ description: '', category: '' });
+        setConsignedDetails({
+            item_code: '',
+            supplier: '',
+            expiration: '',
+            uom: '',
+            qty: '',
+            qty_per_box: '',
+            minimum: '',
+            maximum: '',
+            price: '',
+            bin_location: ''
         });
+        setAddedItems([]);
+        setTempConsignedNo(nextConsignedNo);
+        setModalStep(1);
     };
 
-    const handleAddItemToExisting = () => {
-        // Get consigned_no from viewing item
-        setExistingConsignedNo(viewingItem.consigned_no);
-        setIsAddingToExisting(true);
-        
-        // Pre-fill mat_description and category from parent
-        setFormData({
-            mat_description: viewingItem.mat_description,
-            category: viewingItem.category,
-            item_code: "",
-            supplier: "",
-            bin_location: "",
-            expiration: "",
-            qty: "",
-            uom: "",
-            qty_per_box: "",
-            minimum: "",
-            maximum: "",
-            price: ""
+    const closeModal = () => {
+        setModalStep(0);
+        setNewItem({ description: '', category: '' });
+        setConsignedDetails({
+            item_code: '',
+            supplier: '',
+            expiration: '',
+            uom: '',
+            qty: '',
+            qty_per_box: '',
+            minimum: '',
+            maximum: '',
+            price: '',
+            bin_location: ''
         });
-        
-        // Close view modal and open second modal for adding detail
-        setIsViewModalOpen(false);
-        setIsSecondModalOpen(true);
+        setAddedItems([]);
     };
 
-    const handleCloseModal = () => {
-        setIsModalOpen(false);
-        setFormData({
-            mat_description: "",
-            category: "",
-            item_code: "",
-            supplier: "",
-            bin_location: "",
-            expiration: "",
-            qty: "",
-            uom: "",
-            qty_per_box: "",
-            minimum: "",
-            maximum: "",
-            price: ""
-        });
+    const handleNextToDetails = () => {
+        if (!newItem.description.trim()) {
+            alert('Please enter a description');
+            return;
+        }
+        setModalStep(2);
     };
 
-    const handleInputChange = (e) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({
-            ...prev,
-            [name]: value
-        }));
+    const handleBackToItemInfo = () => {
+        setModalStep(1);
     };
 
-    const handleNext = () => {
-        // Validate form data
-        if (!formData.mat_description.trim() || !formData.category.trim()) {
-            alert("Please fill in all fields");
+    const handleAddItemToTable = () => {
+        if (!consignedDetails.item_code.trim() || !consignedDetails.supplier.trim() || !consignedDetails.qty) {
+            alert('Please fill in Item Code, Supplier, and Quantity');
             return;
         }
 
-        // If adding to existing, skip to step 2 since we already have consigned info
-        if (isAddingToExisting) {
-            setIsModalOpen(false);
-            setIsSecondModalOpen(true);
-        } else {
-            // Close first modal and open second modal for new item
-            setIsModalOpen(false);
-            setIsSecondModalOpen(true);
-        }
-    };
+        const newItemData = {
+            id: Date.now(),
+            ...consignedDetails
+        };
 
-    const handleCloseSecondModal = () => {
-        setIsSecondModalOpen(false);
-        setIsAddingToExisting(false);
-        setExistingConsignedNo(null);
-        setFormData({
-            mat_description: "",
-            category: "",
-            item_code: "",
-            supplier: "",
-            bin_location: "",
-            expiration: "",
-            qty: "",
-            uom: "",
-            qty_per_box: "",
-            minimum: "",
-            maximum: "",
-            price: ""
+        setAddedItems([...addedItems, newItemData]);
+        
+        setConsignedDetails({
+            item_code: '',
+            supplier: '',
+            expiration: '',
+            uom: '',
+            qty: '',
+            qty_per_box: '',
+            minimum: '',
+            maximum: '',
+            price: '',
+            bin_location: ''
         });
     };
 
-    const handleSubmit = () => {
-        // Determine which endpoint to use based on context
-        if (isAddingToExisting && existingConsignedNo) {
-            // Prepare data for adding detail to existing consigned
-            const detailData = {
-                consigned_no: existingConsignedNo,
-                item_code: formData.item_code,
-                supplier: formData.supplier,
-                bin_location: formData.bin_location,
-                expiration: formData.expiration,
-                qty: formData.qty,
-                uom: formData.uom,
-                qty_per_box: formData.qty_per_box,
-                minimum: formData.minimum,
-                maximum: formData.maximum,
-                price: formData.price
-            };
-            
-            console.log('Adding detail to existing consigned:', detailData);
-            
-            // Submit to addDetail endpoint (NOT store)
-            router.post(route('consigned.addDetail'), detailData, {
-                preserveState: true,
-                preserveScroll: true,
-                onSuccess: () => {
-                    // Close the modal first
-                    handleCloseSecondModal();
-                    // If we were viewing an item, refresh it to show the new detail
-                    if (viewingItem) {
-                        handleView(viewingItem.id);
-                        setIsViewModalOpen(true); // Reopen the view modal
-                    }
-                },
-                onError: (errors) => {
-                    console.error('Validation errors:', errors);
-                    alert('Failed to add detail. Please check the form.');
-                }
-            });
-        } else {
-            // Original logic for creating new consigned item
-            console.log('Creating new consigned item:', formData);
-            
-            router.post(route('consigned.store'), formData, {
-                preserveState: true,
-                preserveScroll: true,
-                onSuccess: () => {
-                    handleCloseSecondModal();
-                    setFormData({
-                        mat_description: "",
-                        category: ""
-                    });
-                },
-                onError: (errors) => {
-                    console.error('Validation errors:', errors);
-                }
-            });
-        }
+    const handleRemoveItem = (id) => {
+        setAddedItems(addedItems.filter(item => item.id !== id));
     };
 
-    // Handle edit button click in main table
-    const handleEditClick = (item) => {
-        setEditingItemId(item.id);
-        setEditFormData({
-            mat_description: item.mat_description,
-            category: item.category
-        });
-    };
-
-    // Handle cancel edit in main table
-    const handleCancelEdit = () => {
-        setEditingItemId(null);
-        setEditFormData({
-            mat_description: "",
-            category: ""
-        });
-    };
-
-    // Handle save edit in main table
-    const handleSaveEdit = (item) => {
-        if (!editFormData.mat_description.trim() || !editFormData.category.trim()) {
-            alert("Please fill in all fields");
+    const handleSaveConsignedItem = () => {
+        if (addedItems.length === 0) {
+            alert('Please add at least one item to the table');
             return;
         }
 
-        // Use Inertia's router to update the item
-        router.put(route('consigned.update', item.id), editFormData, {
-            preserveState: true,
-            preserveScroll: true,
-            onSuccess: () => {
-                setEditingItemId(null);
-                setEditFormData({
-                    mat_description: "",
-                    category: ""
-                });
-            },
-            onError: (errors) => {
-                console.error('Validation errors:', errors);
-                alert('Failed to update item');
-            }
-        });
-    };
-
-    // Handle edit input change in main table
-    const handleEditInputChange = (e) => {
-        const { name, value } = e.target;
-        setEditFormData(prev => ({
-            ...prev,
-            [name]: value
-        }));
-    };
-
-    // Handle edit button click in view modal
-    const handleEdit = () => {
-        setIsEditing(true);
-    };
-
-    // Handle cancel edit in view modal
-    const handleCancelEditInModal = () => {
-        setIsEditing(false);
-        // Reset editing details to original data
-        if (viewingItem && viewingItem.details) {
-            setEditingDetails([...viewingItem.details.map(detail => ({
-                ...detail,
-                expiration: detail.expiration ? detail.expiration.split(' ')[0] : ''
-            }))]);
-        }
-    };
-
-    // Handle inline editing changes in view modal
-    const handleDetailChange = (index, field, value) => {
-        setEditingDetails(prev => {
-            const newDetails = [...prev];
-            newDetails[index] = {
-                ...newDetails[index],
-                [field]: value
-            };
-            return newDetails;
-        });
-    };
-
-    // Handle bulk save in view modal
-    const handleBulkSave = async () => {
-        if (!editingDetails.length) return;
-        
         setIsSaving(true);
-        
-        router.put(route('consigned.bulkUpdateDetails'), {
-            details: editingDetails.map(detail => ({
-                id: detail.id,
-                item_code: detail.item_code || '',
-                supplier: detail.supplier || '',
-                bin_location: detail.bin_location || '',
-                expiration: detail.expiration || '',
-                qty: parseFloat(detail.qty) || 0,
-                uom: detail.uom || '',
-                qty_per_box: parseFloat(detail.qty_per_box) || 0,
-                minimum: parseFloat(detail.minimum) || 0,
-                maximum: parseFloat(detail.maximum) || 0,
-                price: parseFloat(detail.price) || 0
-            }))
+
+        router.post(route('consigned.store'), {
+            mat_description: newItem.description,
+            category: newItem.category,
+            items: addedItems
         }, {
-            preserveState: true,
-            preserveScroll: true,
-            onSuccess: (page) => {
-                // Refresh the viewing item to get updated data
-                if (viewingItem) {
-                    handleView(viewingItem.id);
-                }
-                setIsEditing(false);
-                alert('Details updated successfully!');
+            onSuccess: () => {
+                closeModal();
+                setIsSaving(false);
             },
             onError: (errors) => {
-                console.error('Validation errors:', errors);
-                alert('Failed to save changes');
-            },
-            onFinish: () => {
+                console.error('Error creating item:', errors);
                 setIsSaving(false);
             }
         });
     };
 
-    // Render cell content in view modal based on edit mode
-    const renderCell = (detail, index, field) => {
-        if (!isEditing) {
-            // Display mode
-            switch(field) {
-                case 'expiration':
-                    return detail[field] ? detail[field].split(' ')[0] : '-';
-                case 'qty':
-                case 'minimum':
-                case 'maximum':
-                case 'qty_per_box':
-                    return detail[field] || '0';
-                case 'price':
-                    return `₱${detail[field] ? parseFloat(detail[field]).toFixed(2) : '0.00'}`;
-                default:
-                    return detail[field] || '-';
+    const openAddDetailsModal = () => {
+        setNewDetailData({
+            item_code: '',
+            supplier: '',
+            expiration: '',
+            uom: '',
+            qty: '',
+            qty_per_box: '',
+            minimum: '',
+            maximum: '',
+            price: '',
+            bin_location: ''
+        });
+        setAddDetailsModal(true);
+    };
+
+    const closeAddDetailsModal = () => {
+        setAddDetailsModal(false);
+        setNewDetailData({
+            item_code: '',
+            supplier: '',
+            expiration: '',
+            uom: '',
+            qty: '',
+            qty_per_box: '',
+            minimum: '',
+            maximum: '',
+            price: '',
+            bin_location: ''
+        });
+    };
+
+    const handleSaveNewDetail = () => {
+        if (!newDetailData.item_code.trim() || !newDetailData.supplier.trim() || !newDetailData.qty || !newDetailData.uom.trim()) {
+            alert('Please fill in all required fields (Item Code, Supplier, UOM, and Quantity)');
+            return;
+        }
+
+        setIsSaving(true);
+
+        router.put(route('consigned.updateDetails', selectedConsigned.id), {
+            details: [
+                ...editableDetails.filter(d => !d.isNew).map(detail => ({
+                    id: detail.id,
+                    item_code: detail.item_code,
+                    supplier: detail.supplier,
+                    expiration: detail.expiration || null,
+                    uom: detail.uom || '',
+                    bin_location: detail.bin_location || null,
+                    qty: detail.qty,
+                    qty_per_box: detail.qty_per_box || null,
+                    minimum: detail.minimum || null,
+                    maximum: detail.maximum || null,
+                    price: detail.price || null
+                })),
+                {
+                    item_code: newDetailData.item_code,
+                    supplier: newDetailData.supplier,
+                    expiration: newDetailData.expiration || null,
+                    uom: newDetailData.uom || '',
+                    bin_location: newDetailData.bin_location || null,
+                    qty: newDetailData.qty,
+                    qty_per_box: newDetailData.qty_per_box || null,
+                    minimum: newDetailData.minimum || null,
+                    maximum: newDetailData.maximum || null,
+                    price: newDetailData.price || null
+                }
+            ]
+        }, {
+            onSuccess: () => {
+                // Create the new detail object with temporary ID
+                const newDetail = {
+                    id: Date.now(), // Temporary ID
+                    item_code: newDetailData.item_code,
+                    supplier: newDetailData.supplier,
+                    expiration: newDetailData.expiration || null,
+                    uom: newDetailData.uom || '',
+                    bin_location: newDetailData.bin_location || null,
+                    qty: newDetailData.qty,
+                    qty_per_box: newDetailData.qty_per_box || null,
+                    minimum: newDetailData.minimum || null,
+                    maximum: newDetailData.maximum || null,
+                    price: newDetailData.price || null,
+                    isNew: false
+                };
+                
+                // Update editableDetails state
+                setEditableDetails([...editableDetails, newDetail]);
+                
+                // Update selectedConsigned state
+                setSelectedConsigned({
+                    ...selectedConsigned,
+                    details: [...(selectedConsigned.details || []), newDetail]
+                });
+                
+                closeAddDetailsModal();
+                setIsSaving(false);
+                alert('Detail added successfully!');
+            },
+            onError: (errors) => {
+                console.error('Error adding detail:', errors);
+                setIsSaving(false);
+                alert('Failed to add detail. Please try again.');
             }
-        } else {
-            // Edit mode - render input field
-            const value = editingDetails[index]?.[field] || '';
-            
-            switch(field) {
-                case 'expiration':
-                    return (
-                        <input
-                            type="date"
-                            className="input input-bordered input-xs w-full"
-                            value={value}
-                            onChange={(e) => handleDetailChange(index, field, e.target.value)}
-                        />
-                    );
-                case 'qty':
-                case 'minimum':
-                case 'maximum':
-                case 'qty_per_box':
-                case 'price':
-                    return (
-                        <input
-                            type="number"
-                            step={field === 'price' ? '0.01' : '1'}
-                            className="input input-bordered input-xs w-full"
-                            value={value}
-                            onChange={(e) => handleDetailChange(index, field, e.target.value)}
-                        />
-                    );
-                default:
-                    return (
-                        <input
-                            type="text"
-                            className="input input-bordered input-xs w-full"
-                            value={value}
-                            onChange={(e) => handleDetailChange(index, field, e.target.value)}
-                        />
-                    );
-            }
+        });
+    };
+
+    // Add these handler functions
+    const handleDetailChange = (index, field, value) => {
+        const updatedDetails = [...editableDetails];
+        updatedDetails[index][field] = value;
+        setEditableDetails(updatedDetails);
+    };
+
+    const handleRemoveDetail = (index) => {
+        const detail = editableDetails[index];
+        // Only allow deletion of new rows (not existing records)
+        if (detail.isNew) {
+            const updatedDetails = [...editableDetails];
+            updatedDetails.splice(index, 1);
+            setEditableDetails(updatedDetails);
         }
     };
 
-// Update the handleAddQuantity function
-const handleAddQuantity = async () => {
-    if (selectedItems.length === 0) {
-        alert("Please add at least one item to the table");
+const handleSaveEditableDetails = () => {
+    // Validate required fields
+    const invalidRows = editableDetails.filter(detail => 
+        !detail.item_code.trim() || 
+        !detail.supplier.trim() || 
+        !detail.qty ||
+        !detail.uom.trim()  // Add UOM validation
+    );
+
+    if (invalidRows.length > 0) {
+        alert('Please fill in all required fields (Item Code, Supplier, UOM, and Quantity) for all rows.');
         return;
     }
 
-    // Validate all items have quantities
-    const invalidItems = selectedItems.filter(item => !item.quantityToAdd || parseFloat(item.quantityToAdd) <= 0);
-    if (invalidItems.length > 0) {
-        alert("Please enter valid quantities for all items");
-        return;
-    }
+    setIsSaving(true);
 
-    setIsAddingQuantity(true);
-
-    // Submit all items at once
-    router.post(route('consigned.addQuantityBulk'), {
-        items: selectedItems.map(item => ({
-            detail_id: item.id,
-            quantity: parseFloat(item.quantityToAdd)
+    router.put(route('consigned.updateDetails', selectedConsigned.id), {
+        details: editableDetails.map(detail => ({
+            id: detail.isNew ? undefined : detail.id,
+            item_code: detail.item_code,
+            supplier: detail.supplier,
+            expiration: detail.expiration || null,
+            uom: detail.uom || '',  // Add UOM field
+            bin_location: detail.bin_location || null,
+            qty: detail.qty,
+            qty_per_box: detail.qty_per_box || null,
+            minimum: detail.minimum || null,
+            maximum: detail.maximum || null,
+            price: detail.price || null
         }))
     }, {
-        preserveState: true,
-        preserveScroll: true,
         onSuccess: () => {
-            alert(`Successfully updated ${selectedItems.length} item(s)`);
+            // Update the selected consigned data with new details
+            const updatedConsigned = {
+                ...selectedConsigned,
+                details: editableDetails.filter(d => !d.isNew).map(detail => ({
+                    id: detail.id,
+                    item_code: detail.item_code,
+                    supplier: detail.supplier,
+                    expiration: detail.expiration,
+                    uom: detail.uom,  // Add UOM
+                    bin_location: detail.bin_location,
+                    qty: detail.qty,
+                    qty_per_box: detail.qty_per_box,
+                    minimum: detail.minimum,
+                    maximum: detail.maximum,
+                    price: detail.price
+                }))
+            };
             
-            // Reset form
-            setIsQuantityModalOpen(false);
-            setSelectedItems([]);
-            setQuantitySearchQuery("");
-            setFilteredItems([]);
+            setSelectedConsigned(updatedConsigned);
+            setEditingDetails(false);
+            setIsSaving(false);
+            alert('Details updated successfully!');
         },
         onError: (errors) => {
-            console.error('Error adding quantities:', errors);
-            alert('Failed to add quantities');
-        },
-        onFinish: () => {
-            setIsAddingQuantity(false);
+            console.error('Error updating details:', errors);
+            setIsSaving(false);
+            alert('Failed to update details. Please try again.');
         }
     });
 };
 
-// Add function to handle adding item to the table
-const handleAddToTable = () => {
-    if (!selectedItem) {
-        alert("Please select an item first");
+const handleEditClick = (consigned) => {
+    setEditingRow(consigned.id);
+    setEditFormData({
+        mat_description: consigned.mat_description,
+        category: consigned.category || ''
+    });
+};
+
+const handleCancelEdit = () => {
+    setEditingRow(null);
+    setEditFormData({
+        mat_description: '',
+        category: ''
+    });
+};
+
+const handleSaveEdit = (consignedId) => {
+    if (!editFormData.mat_description.trim()) {
+        alert('Description is required');
         return;
     }
 
-    // Check if item already exists in table
-    const exists = selectedItems.find(item => item.id === selectedItem.id);
-    if (exists) {
-        alert("This item is already in the table");
-        return;
-    }
+    setIsSaving(true);
 
-    // Add item to table with initial quantity
-    setSelectedItems(prev => [...prev, {
-        ...selectedItem,
-        quantityToAdd: ""
-    }]);
-
-    // Clear selection
-    setSelectedItem(null);
-    setQuantitySearchQuery("");
-    setFilteredItems([]);
-};
-
-// Function to update quantity for an item in the table
-const handleTableQuantityChange = (itemId, quantity) => {
-    setSelectedItems(prev => prev.map(item => 
-        item.id === itemId ? { ...item, quantityToAdd: quantity } : item
-    ));
-};
-
-// Function to remove item from table
-const handleRemoveFromTable = (itemId) => {
-    setSelectedItems(prev => prev.filter(item => item.id !== itemId));
+    router.put(route('consigned.update', consignedId), {
+        mat_description: editFormData.mat_description,
+        category: editFormData.category
+    }, {
+        onSuccess: () => {
+            setEditingRow(null);
+            setEditFormData({
+                mat_description: '',
+                category: ''
+            });
+            setIsSaving(false);
+            alert('Item updated successfully!');
+        },
+        onError: (errors) => {
+            console.error('Error updating item:', errors);
+            setIsSaving(false);
+            alert('Failed to update item. Please try again.');
+        }
+    });
 };
 
 
@@ -835,7 +757,7 @@ const handleRemoveFromTable = (itemId) => {
 
                         <button 
                             className="btn btn-secondary"
-                            onClick={() => setIsQuantityModalOpen(true)}
+                            onClick={openAddQuantityModal}
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
                                 <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
@@ -845,7 +767,7 @@ const handleRemoveFromTable = (itemId) => {
 
                         <button 
                             className="btn btn-primary"
-                            onClick={handleOpenModal}
+                            onClick={openAddItemModal}
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
                                 <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
@@ -860,7 +782,7 @@ const handleRemoveFromTable = (itemId) => {
                     <div className="flex gap-2 w-full md:w-auto">
                         <input 
                             type="text" 
-                            placeholder="Search consigned..." 
+                            placeholder="Search consigned items..." 
                             className="input input-bordered w-full md:w-64"
                             value={mainSearchQuery}
                             onChange={handleSearch}
@@ -906,123 +828,178 @@ const handleRemoveFromTable = (itemId) => {
                     <table className="table table-zebra w-full">
                         <thead>
                             <tr>
-                                <th>Consigned No</th>
-                                <th>Material Description</th>
+                                <th>Item Code</th>
+                                <th>Description</th>
+                                <th>Supplier</th>
                                 <th>Category</th>
                                 <th className="text-center">Action</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            {consignedItems.length > 0 ? (
-                                consignedItems.map((item, index) => (
-                                    <tr key={item.id || index}>
-                                        <td className="font-medium">{item.consigned_no || item.code || '-'}</td>
-                                        <td>
-                                            {editingItemId === item.id ? (
-                                                <input
-                                                    type="text"
-                                                    name="mat_description"
-                                                    className="input input-bordered input-sm w-full"
-                                                    value={editFormData.mat_description}
-                                                    onChange={handleEditInputChange}
-                                                />
-                                            ) : (
-                                                item.mat_description || item.description || '-'
-                                            )}
-                                        </td>
-                                        <td>
-                                            {editingItemId === item.id ? (
-                                                <input
-                                                    type="text"
-                                                    name="category"
-                                                    className="input input-bordered input-sm w-full"
-                                                    value={editFormData.category}
-                                                    onChange={handleEditInputChange}
-                                                />
-                                            ) : (
-                                                item.category || item.type || '-'
-                                            )}
-                                        </td>
-                                        <td className="text-center">
-                                            <div className="flex justify-center gap-2">
-                                                {editingItemId === item.id ? (
-                                                    <>
-                                                        <button 
-                                                            className="btn btn-sm btn-success"
-                                                            onClick={() => handleSaveEdit(item)}
-                                                        >
-                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                                            </svg>
-                                                            Save
-                                                        </button>
-                                                        <button 
-                                                            className="btn btn-sm btn-ghost"
-                                                            onClick={handleCancelEdit}
-                                                        >
-                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                                                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                                                            </svg>
-                                                            Cancel
-                                                        </button>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                    
-                                                    <div className="flex gap-2 justify-center">
+                            <tbody>
+                                {consignedItems.length > 0 ? (
+                                    consignedItems.map((consigned) => {
+                                        const itemToSupplier = consigned.details?.reduce((acc, detail) => {
+                                            acc[detail.item_code] = detail.supplier;
+                                            return acc;
+                                        }, {}) || {};
 
-                                                <button
-                                                    className="btn btn-sm btn-ghost"
-                                                    title="View Details"
-                                                    onClick={() => handleView(item.id)}
-                                                >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                        <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-                                                        <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
-                                                    </svg>
-                                                </button>
-                                                <button
-                                                    className="btn btn-sm btn-ghost"
-                                                    title="View History"
-                                                    onClick={() => handleViewHistory(item)}
-                                                >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-                                                    </svg>
-                                                </button>
-                                                <button
-                                                    onClick={() => handleEditClick(item)}
-                                                    className="btn btn-sm btn-ghost"
-                                                    title="Edit"
-                                                >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                                                    </svg>
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDeleteClick(item)}
-                                                    className="btn btn-sm btn-ghost text-error"
-                                                    title="Delete"
-                                                >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                                                    </svg>
-                                                </button>
-                                            </div>
-                                                    </>
-                                                )}
-                                            </div>
+                                        const selectedItemCode = rowSelections[consigned.id];
+                                        const isEditing = editingRow === consigned.id;
+
+                                        return (
+                                            <tr key={consigned.id}>
+                                                <td>
+                                                    <select
+                                                        className="select select-bordered select-sm w-full px-2 h-9"
+                                                        value={selectedItemCode}
+                                                        onChange={(e) => {
+                                                            const newItemCode = e.target.value;
+                                                            const newSupplier = itemToSupplier[newItemCode] ?? "";
+
+                                                            setRowSelections((prev) => ({
+                                                                ...prev,
+                                                                [consigned.id]: newItemCode,
+                                                            }));
+
+                                                            router.put(route('consigned.updateItem', consigned.id), {
+                                                                selected_itemcode: newItemCode,
+                                                                selected_supplier: newSupplier,
+                                                            });
+                                                        }}
+                                                        disabled={isEditing}
+                                                    >
+                                                        <option value="">Select Item Code</option>
+                                                        {consigned.item_codes?.map(code => (
+                                                            <option key={code} value={code}>
+                                                                {code}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    {isEditing ? (
+                                                        <input
+                                                            type="text"
+                                                            className="input input-bordered input-sm w-full"
+                                                            value={editFormData.mat_description}
+                                                            onChange={(e) => setEditFormData({
+                                                                ...editFormData,
+                                                                mat_description: e.target.value
+                                                            })}
+                                                            placeholder="Description"
+                                                        />
+                                                    ) : (
+                                                        consigned.mat_description
+                                                    )}
+                                                </td>
+                                                <td>
+                                                    {rowSelections[consigned.id]
+                                                        ? itemToSupplier[rowSelections[consigned.id]] ?? "-"
+                                                        : "-"}
+                                                </td>
+                                                <td>
+                                                    {isEditing ? (
+                                                        <input
+                                                            type="text"
+                                                            className="input input-bordered input-sm w-full"
+                                                            value={editFormData.category}
+                                                            onChange={(e) => setEditFormData({
+                                                                ...editFormData,
+                                                                category: e.target.value
+                                                            })}
+                                                            placeholder="Category"
+                                                        />
+                                                    ) : (
+                                                        consigned.category ?? '-'
+                                                    )}
+                                                </td>
+                                                <td className="text-center">
+                                                    <div className="flex gap-2 justify-center">
+                                                        {isEditing ? (
+                                                            <>
+                                                                <button 
+                                                                    className="btn btn-sm btn-success" 
+                                                                    title="Save"
+                                                                    onClick={() => handleSaveEdit(consigned.id)}
+                                                                    disabled={isSaving}
+                                                                >
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                                                    </svg>
+                                                                </button>
+                                                                <button 
+                                                                    className="btn btn-sm btn-ghost" 
+                                                                    title="Cancel"
+                                                                    onClick={handleCancelEdit}
+                                                                    disabled={isSaving}
+                                                                >
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                                                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                                                    </svg>
+                                                                </button>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <button 
+                                                                    className="btn btn-sm btn-ghost" 
+                                                                    title="View Details"
+                                                                    onClick={() => {
+                                                                        setSelectedConsigned(consigned);
+                                                                        setViewDetailsModal(true);
+                                                                        setEditingDetails(false);
+                                                                        if (consigned.details) {
+                                                                            setEditableDetails([...consigned.details.map(detail => ({
+                                                                                ...detail,
+                                                                                isNew: false
+                                                                            }))]);
+                                                                        } else {
+                                                                            setEditableDetails([]);
+                                                                        }
+                                                                    }}
+                                                                >
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                                        <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+                                                                        <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
+                                                                    </svg>
+                                                                </button>
+                                                                <button className="btn btn-sm btn-ghost" title="View History" onClick={() => openConsignedHistory(consigned)}>
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                                                                    </svg>
+                                                                </button>
+                                                                <button 
+                                                                    className="btn btn-sm btn-ghost" 
+                                                                    title="Edit"
+                                                                    onClick={() => handleEditClick(consigned)}
+                                                                >
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                                                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                                                    </svg>
+                                                                </button>
+                                                                <button 
+                                                                    className="btn btn-sm btn-ghost text-error" 
+                                                                    title="Delete"
+                                                                    onClick={() => openDeleteConsignedModal(consigned)}
+                                                                >
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                                                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                                                                    </svg>
+                                                                </button>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
+                                ) : (
+                                    <tr>
+                                        <td colSpan="5" className="text-center py-8 text-gray-500">
+                                            No consigned items found
                                         </td>
                                     </tr>
-                                ))
-                            ) : (
-                                <tr>
-                                    <td colSpan="4" className="text-center py-8 text-gray-500">
-                                        No consigned items found
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
+                                )}
+                            </tbody>
                     </table>
                 </div>
 
@@ -1044,7 +1021,6 @@ const handleRemoveFromTable = (itemId) => {
                             
                             {[...Array(pagination.last_page)].map((_, i) => {
                                 const page = i + 1;
-                                // Show first page, last page, current page, and pages around current
                                 if (
                                     page === 1 || 
                                     page === pagination.last_page || 
@@ -1088,768 +1064,1067 @@ const handleRemoveFromTable = (itemId) => {
                 )}
             </div>
 
-            {/* Add Item Modal */}
-            {isModalOpen && (
+            {/* Step 1: Add Item Modal */}
+            {modalStep === 1 && (
                 <div className="modal modal-open">
                     <div className="modal-box">
-                        <h3 className="font-bold text-lg mb-4">
-                            {isAddingToExisting ? 'Add New Item - Step 1' : 'Add New Item'}
-                        </h3>
-                        
-                        {isAddingToExisting && (
-                            <div className="alert alert-info mb-4">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" className="stroke-current shrink-0 w-6 h-6">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                                </svg>
-                                <span>Adding detail to: {existingConsignedNo}</span>
-                            </div>
-                        )}
+                        <h3 className="font-bold text-lg mb-4">Add New Item</h3>
                         
                         <div className="space-y-4">
-                            {/* Material Description Input */}
                             <div className="form-control">
                                 <label className="label">
-                                    <span className="label-text">Material Description</span>
+                                    <span className="label-text">Description <span className="text-error">*</span></span>
                                 </label>
-                                <input 
-                                    type="text" 
-                                    name="mat_description"
-                                    placeholder="Enter material description" 
+                                <input
+                                    type="text"
+                                    placeholder="Enter item description"
                                     className="input input-bordered w-full"
-                                    value={formData.mat_description}
-                                    onChange={handleInputChange}
-                                    disabled={isAddingToExisting}
+                                    value={newItem.description}
+                                    onChange={(e) => setNewItem({ ...newItem, description: e.target.value })}
                                 />
                             </div>
 
-                            {/* Category Input */}
                             <div className="form-control">
                                 <label className="label">
                                     <span className="label-text">Category</span>
                                 </label>
-                                <input 
-                                    type="text" 
-                                    name="category"
-                                    placeholder="Enter category" 
+                                <input
+                                    type="text"
+                                    placeholder="Enter category (optional)"
                                     className="input input-bordered w-full"
-                                    value={formData.category}
-                                    onChange={handleInputChange}
-                                    disabled={isAddingToExisting}
+                                    value={newItem.category}
+                                    onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
                                 />
                             </div>
                         </div>
 
-                        {/* Modal Footer */}
                         <div className="modal-action">
                             <button 
-                                className="btn btn-ghost"
-                                onClick={handleCloseModal}
+                                className="btn btn-ghost" 
+                                onClick={closeModal}
                             >
-                                Close
+                                Cancel
                             </button>
                             <button 
                                 className="btn btn-primary"
-                                onClick={handleNext}
+                                onClick={handleNextToDetails}
+                                disabled={!newItem.description.trim()}
                             >
                                 Next
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-2" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" />
+                                </svg>
                             </button>
                         </div>
                     </div>
+                    <div className="modal-backdrop" onClick={closeModal}></div>
                 </div>
             )}
 
-            {/* View Item Modal */}
-            {isViewModalOpen && viewingItem && (
+            {/* Step 2: Add Consigned Details Modal */}
+            {modalStep === 2 && (
                 <div className="modal modal-open">
-                    <div className="modal-box max-w-6xl">
-                        <h3 className="font-bold text-lg mb-4">View Item Details</h3>
-                        
-                        {/* Item Info Card */}
-                        <div className="card bg-base-200 shadow-md mb-6">
-                            <div className="card-body">
-                                <h4 className="card-title text-base">Item Info</h4>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
-                                    <div>
-                                        <span className="text-sm font-semibold text-gray-600">Consigned No:</span>
-                                        <p className="text-sm mt-1">{viewingItem.consigned_no || '-'}</p>
-                                    </div>
-                                    <div>
-                                        <span className="text-sm font-semibold text-gray-600">Material Description:</span>
-                                        <p className="text-sm mt-1">{viewingItem.mat_description || '-'}</p>
-                                    </div>
-                                    <div>
-                                        <span className="text-sm font-semibold text-gray-600">Category:</span>
-                                        <p className="text-sm mt-1">{viewingItem.category || '-'}</p>
-                                    </div>
-                                </div>
-                            </div>
+                    <div className="modal-box max-w-6xl max-h-[95vh] w-[95vw] flex flex-col p-0">
+                        <div className="px-6 pt-6 pb-4 border-b bg-base-100 sticky top-0 z-10">
+                            <h3 className="font-bold text-xl">Add Consigned Details</h3>
                         </div>
 
-                        {/* Details Table */}
-                        <div className="overflow-x-auto">
-                            <div className="flex justify-between items-center mb-2">
-                                <h4 className="font-semibold">Consigned Details</h4>
-                                <div className="flex gap-2">
-                                    <button 
-                                        className="btn btn-sm btn-primary"
-                                        onClick={handleAddItemToExisting}
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                                            <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                        <div className="flex-1 overflow-y-auto px-6 py-4">
+                            <div className="card bg-gradient-to-r from-primary/10 to-secondary/10 border border-base-300 mb-6">
+                                <div className="card-body p-4">
+                                    <div className="flex items-center gap-2 mb-3">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-primary" viewBox="0 0 20 20" fill="currentColor">
+                                            <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
+                                            <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
                                         </svg>
-                                        Add Item
-                                    </button>
-                                    
-                                    {!isEditing ? (
-                                        <button 
-                                            className="btn btn-sm btn-secondary"
-                                            onClick={handleEdit}
-                                        >
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                                                <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                                            </svg>
-                                            Edit Item
-                                        </button>
-                                    ) : (
-                                        <>
-                                            <button 
-                                                className="btn btn-sm btn-success"
-                                                onClick={handleBulkSave}
-                                                disabled={isSaving}
-                                            >
-                                                {isSaving ? (
-                                                    <>
-                                                        <span className="loading loading-spinner loading-xs mr-1"></span>
-                                                        Saving...
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                                                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 011.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                                        </svg>
-                                                        Save All
-                                                    </>
-                                                )}
-                                            </button>
-                                            <button 
-                                                className="btn btn-sm btn-ghost"
-                                                onClick={handleCancelEditInModal}
-                                            >
-                                                Cancel
-                                            </button>
-                                        </>
-                                    )}
+                                        <h4 className="font-semibold text-base">Item Information</h4>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                        <div className="space-y-1">
+                                            <p className="text-xs font-medium text-base-content/60 uppercase">Consigned No</p>
+                                            <p className="font-semibold text-sm text-primary">{nextConsignedNo}</p>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <p className="text-xs font-medium text-base-content/60 uppercase">Description</p>
+                                            <p className="font-semibold text-sm">{newItem.description}</p>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <p className="text-xs font-medium text-base-content/60 uppercase">Category</p>
+                                            <p className="font-semibold text-sm">{newItem.category || '-'}</p>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                            <table className="table table-zebra w-full table-sm">
-                                <thead>
-                                    <tr>
-                                        <th>Item Code</th>
-                                        <th>Supplier</th>
-                                        <th>Bin Location</th>
-                                        <th>Expiration</th>
-                                        <th>Qty</th>
-                                        <th>UOM</th>
-                                        <th>Qty/Box</th>
-                                        <th>Min</th>
-                                        <th>Max</th>
-                                        <th>Price</th>
-                                        <th>Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {editingDetails.length > 0 ? (
-                                        editingDetails.map((detail, index) => (
-                                            <tr key={detail.id || index}>
-                                                <td>{renderCell(detail, index, 'item_code')}</td>
-                                                <td>{renderCell(detail, index, 'supplier')}</td>
-                                                <td>{renderCell(detail, index, 'bin_location')}</td>
-                                                <td>{renderCell(detail, index, 'expiration')}</td>
-                                                <td>{renderCell(detail, index, 'qty')}</td>
-                                                <td>{renderCell(detail, index, 'uom')}</td>
-                                                <td>{renderCell(detail, index, 'qty_per_box')}</td>
-                                                <td>{renderCell(detail, index, 'minimum')}</td>
-                                                <td>{renderCell(detail, index, 'maximum')}</td>
-                                                <td>{renderCell(detail, index, 'price')}</td>
-                                                <td>
-                                                    <div className="flex gap-2 ">
-                                                <button
-                                                    className="btn btn-sm btn-ghost"
-                                                    title="View History"
-                                                    onClick={() => handleViewDetailHistory(detail)}
-                                                >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-                                                    </svg>
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDeleteDetailClick(detail)}
-                                                    className="btn btn-sm btn-ghost text-error"
-                                                    title="Delete"
-                                                >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                                                    </svg>
-                                                </button>
-                                            </div></td>
-                                            </tr>
-                                        ))
-                                    ) : (
-                                        <tr>
-                                            <td colSpan="11" className="text-center py-4 text-gray-500">
-                                                No details found
-                                            </td>
-                                        </tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
 
-                        {/* Modal Footer */}
-                        <div className="modal-action">
-                            <button 
-                                className="btn btn-ghost"
-                                onClick={handleCloseViewModal}
-                            >
-                                Close
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+                            <div className="space-y-6">
+                                <div>
+                                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                                        <div className="form-control">
+                                            <label className="label py-1">
+                                                <span className="label-text font-medium text-sm">
+                                                    Item Code <span className="text-error">*</span>
+                                                </span>
+                                            </label>
+                                            <input
+                                                type="text"
+                                                placeholder="Enter item code"
+                                                className="input input-bordered w-full"
+                                                value={consignedDetails.item_code}
+                                                onChange={(e) => setConsignedDetails({ ...consignedDetails, item_code: e.target.value })}
+                                            />
+                                        </div>
 
-        {/* Second Modal - Step 2: Additional Item Details */}
-        {isSecondModalOpen && (
-            <div className="modal modal-open">
-                <div className="modal-box max-w-2xl">
-                    <h3 className="font-bold text-lg mb-4">
-                        {isAddingToExisting ? `Add Detail to ${existingConsignedNo}` : 'Add New Item - Step 2'}
-                    </h3>
-                    
-                    {isAddingToExisting && (
-                        <div className="alert alert-info mb-4">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" className="stroke-current shrink-0 w-6 h-6">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                            </svg>
-                            <div className="text-sm">
-                                <p>Adding new detail to existing consigned item:</p>
-                                <p className="font-semibold">Consigned No: {existingConsignedNo}</p>
-                                <p className="font-semibold">Material: {formData.mat_description}</p>
-                                <p className="font-semibold">Category: {formData.category}</p>
-                            </div>
-                        </div>
-                    )}
-                    
-                    {/* CHANGE THIS CONDITION FROM !isAddingToExisting TO isAddingToExisting === false */}
-                    {isAddingToExisting && (
-    <div className="alert alert-info mb-4">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" className="stroke-current shrink-0 w-6 h-6">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-        </svg>
-        <div className="text-sm">
-            <p>Adding new detail to: <span className="font-semibold">{existingConsignedNo}</span></p>
-        </div>
-    </div>
-)}
-                        
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* Item Code */}
-                            <div className="form-control">
-                                <label className="label">
-                                    <span className="label-text">Item Code *</span>
-                                </label>
-                                <input 
-                                    type="text" 
-                                    name="item_code"
-                                    placeholder="Enter item code" 
-                                    className="input input-bordered w-full"
-                                    value={formData.item_code}
-                                    onChange={handleInputChange}
-                                    required
-                                />
-                            </div>
+                                        <div className="form-control">
+                                            <label className="label py-1">
+                                                <span className="label-text font-medium text-sm">
+                                                    Supplier <span className="text-error">*</span>
+                                                </span>
+                                            </label>
+                                            <input
+                                                type="text"
+                                                placeholder="Enter supplier name"
+                                                className="input input-bordered w-full"
+                                                value={consignedDetails.supplier}
+                                                onChange={(e) => setConsignedDetails({ ...consignedDetails, supplier: e.target.value })}
+                                            />
+                                        </div>
 
-                            {/* Supplier */}
-                            <div className="form-control">
-                                <label className="label">
-                                    <span className="label-text">Supplier *</span>
-                                </label>
-                                <input 
-                                    type="text" 
-                                    name="supplier"
-                                    placeholder="Enter supplier name" 
-                                    className="input input-bordered w-full"
-                                    value={formData.supplier}
-                                    onChange={handleInputChange}
-                                    required
-                                />
-                            </div>
+                                        <div className="form-control">
+                                            <label className="label py-1">
+                                                <span className="label-text font-medium text-sm">Expiration Date</span>
+                                            </label>
+                                            <input
+                                                type="date"
+                                                className="input input-bordered w-full"
+                                                value={consignedDetails.expiration}
+                                                onChange={(e) => setConsignedDetails({ ...consignedDetails, expiration: e.target.value })}
+                                            />
+                                        </div>
 
-                            {/* Bin Location */}
-                            <div className="form-control">
-                                <label className="label">
-                                    <span className="label-text">Bin Location</span>
-                                </label>
-                                <input 
-                                    type="text" 
-                                    name="bin_location"
-                                    placeholder="Enter bin location" 
-                                    className="input input-bordered w-full"
-                                    value={formData.bin_location}
-                                    onChange={handleInputChange}
-                                />
-                            </div>
+                                        <div className="form-control">
+                                            <label className="label py-1">
+                                                <span className="label-text font-medium text-sm">Unit of Measure</span>
+                                            </label>
+                                            <input
+                                                type="text"
+                                                placeholder="e.g., PCS, BOX, KG"
+                                                className="input input-bordered w-full"
+                                                value={consignedDetails.uom}
+                                                onChange={(e) => setConsignedDetails({ ...consignedDetails, uom: e.target.value })}
+                                            />
+                                        </div>
 
-                            {/* Expiration */}
-                            <div className="form-control">
-                                <label className="label">
-                                    <span className="label-text">Expiration</span>
-                                </label>
-                                <input 
-                                    type="date" 
-                                    name="expiration"
-                                    className="input input-bordered w-full"
-                                    value={formData.expiration}
-                                    onChange={handleInputChange}
-                                />
-                            </div>
+                                        <div className="form-control">
+                                            <label className="label py-1">
+                                                <span className="label-text font-medium text-sm">Bin Location</span>
+                                            </label>
+                                            <input
+                                                type="text"
+                                                placeholder="e.g., A-01-05"
+                                                className="input input-bordered w-full"
+                                                value={consignedDetails.bin_location}
+                                                onChange={(e) => setConsignedDetails({ ...consignedDetails, bin_location: e.target.value })}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
 
-                            {/* Quantity */}
-                            <div className="form-control">
-                                <label className="label">
-                                    <span className="label-text">Quantity *</span>
-                                </label>
-                                <input 
-                                    type="number" 
-                                    name="qty"
-                                    placeholder="Enter quantity" 
-                                    className="input input-bordered w-full"
-                                    value={formData.qty}
-                                    onChange={handleInputChange}
-                                    min="0"
-                                    step="0.01"
-                                    required
-                                />
-                            </div>
+                                <div>
+                                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                                        <div className="form-control">
+                                            <label className="label py-1">
+                                                <span className="label-text font-medium text-sm">
+                                                    Quantity <span className="text-error">*</span>
+                                                </span>
+                                            </label>
+                                            <input
+                                                type="number"
+                                                placeholder="0"
+                                                className="input input-bordered w-full"
+                                                value={consignedDetails.qty}
+                                                onChange={(e) => setConsignedDetails({ ...consignedDetails, qty: e.target.value })}
+                                            />
+                                        </div>
 
-                            {/* UOM */}
-                            <div className="form-control">
-                                <label className="label">
-                                    <span className="label-text">UOM (Unit of Measure) *</span>
-                                </label>
-                                <input 
-                                    type="text" 
-                                    name="uom"
-                                    placeholder="e.g., pcs, kg, box" 
-                                    className="input input-bordered w-full"
-                                    value={formData.uom}
-                                    onChange={handleInputChange}
-                                    required
-                                />
-                            </div>
-
-                            {/* Qty per Box */}
-                            <div className="form-control">
-                                <label className="label">
-                                    <span className="label-text">Qty per Box</span>
-                                </label>
-                                <input 
-                                    type="number" 
-                                    name="qty_per_box"
-                                    placeholder="Enter qty per box" 
-                                    className="input input-bordered w-full"
-                                    value={formData.qty_per_box}
-                                    onChange={handleInputChange}
-                                    min="0"
-                                    step="0.01"
+                                        <div className="form-control">
+                                            <label className="label py-1">
+                                                <span className="label-text font-medium text-sm">Qty Per Box</span>
+                                            </label>
+                                            <input
+                                                type="number"
+                                                placeholder="0"
+                                                className="input input-bordered w-full"
+                                                value={consignedDetails.qty_per_box}
+                                                onChange={(e) => setConsignedDetails({ ...consignedDetails, qty_per_box: e.target.value })}
                                 />
                             </div>
 
                             {/* Minimum */}
                             <div className="form-control">
-                                <label className="label">
-                                    <span className="label-text">Minimum</span>
+                                <label className="label py-1">
+                                    <span className="label-text font-medium text-sm">Minimum Stock</span>
                                 </label>
-                                <input 
-                                    type="number" 
-                                    name="minimum"
-                                    placeholder="Enter minimum qty" 
+                                <input
+                                    type="number"
+                                    placeholder="0"
                                     className="input input-bordered w-full"
-                                    value={formData.minimum}
-                                    onChange={handleInputChange}
-                                    min="0"
-                                    step="0.01"
+                                    value={consignedDetails.minimum}
+                                    onChange={(e) => setConsignedDetails({ ...consignedDetails, minimum: e.target.value })}
                                 />
                             </div>
 
                             {/* Maximum */}
                             <div className="form-control">
-                                <label className="label">
-                                    <span className="label-text">Maximum</span>
+                                <label className="label py-1">
+                                    <span className="label-text font-medium text-sm">Maximum Stock</span>
                                 </label>
-                                <input 
-                                    type="number" 
-                                    name="maximum"
-                                    placeholder="Enter maximum qty" 
+                                <input
+                                    type="number"
+                                    placeholder="0"
                                     className="input input-bordered w-full"
-                                    value={formData.maximum}
-                                    onChange={handleInputChange}
-                                    min="0"
-                                    step="0.01"
+                                    value={consignedDetails.maximum}
+                                    onChange={(e) => setConsignedDetails({ ...consignedDetails, maximum: e.target.value })}
                                 />
                             </div>
 
                             {/* Price */}
                             <div className="form-control">
-                                <label className="label">
-                                    <span className="label-text">Price *</span>
+                                <label className="label py-1">
+                                    <span className="label-text font-medium text-sm">Price</span>
                                 </label>
-                                <input 
-                                    type="number" 
+                                <input
+                                    type="number"
                                     step="0.01"
-                                    name="price"
-                                    placeholder="Enter price" 
+                                    placeholder="0.00"
                                     className="input input-bordered w-full"
-                                    value={formData.price}
-                                    onChange={handleInputChange}
-                                    min="0"
-                                    required
+                                    value={consignedDetails.price}
+                                    onChange={(e) => setConsignedDetails({ ...consignedDetails, price: e.target.value })}
                                 />
                             </div>
                         </div>
+                    </div>
 
-                        {/* Modal Footer */}
-                        <div className="modal-action">
-                            {!isAddingToExisting && (
-                                <button 
-                                    type="button"
-                                    className="btn btn-ghost"
-                                    onClick={() => {
-                                        setIsSecondModalOpen(false);
-                                        setIsModalOpen(true);
-                                    }}
-                                >
-                                    Back
-                                </button>
-                            )}
-                            <button 
-                                type="button"
-                                className="btn btn-ghost"
-                                onClick={handleCloseSecondModal}
-                            >
-                                Cancel
-                            </button>
-                            <button 
-                                type="button"
-                                className="btn btn-success"
-                                onClick={handleSubmit}
-                            >
-                                {isAddingToExisting ? 'Add Detail' : 'Submit'}
-                            </button>
+                    {/* Divider */}
+                    <div className="divider my-6">
+                        <div className="flex items-center gap-2">
+                            <span>Added Items</span>
+                            <span className="badge badge-primary">{addedItems.length}</span>
                         </div>
                     </div>
-                </div>
-            )}
 
-            {/* Add Quantity Modal */}
-{isQuantityModalOpen && (
-    <div className="modal modal-open">
-        <div className="modal-box max-w-5xl">
-            <h3 className="font-bold text-lg mb-4">Add Quantity</h3>
-            
-            <div className="space-y-6">
-                {/* Search Section */}
-                <div className="card bg-base-200">
-                    <div className="card-body p-4">
-                        <h4 className="font-semibold text-sm mb-2">Search Items</h4>
-                        <div className="form-control">
-                            <label className="label">
-                                <span className="label-text">Search by Item Code or Supplier</span>
-                            </label>
-                            <input 
-                                type="text" 
-                                placeholder="Enter item code or supplier name..." 
-                                className="input input-bordered w-full"
-                                value={quantitySearchQuery}
-                                onChange={(e) => setQuantitySearchQuery(e.target.value)}
-                            />
-                            
-                            {/* Search Results Dropdown */}
-                            {quantitySearchQuery.trim() !== "" && (
-                                <div className="mt-2 max-h-60 overflow-y-auto border rounded-lg shadow-lg bg-base-100">
-                                    {isSearching ? (
-                                        <div className="p-4 text-center">
-                                            <span className="loading loading-spinner loading-sm"></span>
-                                            <span className="ml-2">Searching...</span>
-                                        </div>
-                                    ) : filteredItems.length > 0 ? (
-                                        <ul className="menu rounded-box w-full p-0">
-                                            {filteredItems.map((item) => (
-                                                <li key={item.id} className="w-full">
-                                                    <button 
-                                                        className={`flex flex-col items-start p-3 hover:bg-base-200 w-full ${selectedItem?.id === item.id ? 'bg-base-200' : ''}`}
-                                                        onClick={() => {
-                                                            setSelectedItem(item);
-                                                            setQuantitySearchQuery(`${item.item_code} - ${item.supplier}`);
-                                                            setFilteredItems([]);
-                                                        }}
-                                                    >
-                                                        <div className="flex justify-between w-full">
-                                                            <span className="font-medium">{item.item_code}</span>
-                                                            <span className="badge badge-sm">{item.consigned?.consigned_no || item.consigned_no}</span>
-                                                        </div>
-                                                        <span className="text-sm text-gray-600">Supplier: {item.supplier}</span>
-                                                        <span className="text-xs text-gray-500">
-                                                            Material: {item.consigned?.mat_description || '-'}
-                                                        </span>
-                                                        <span className="text-xs text-gray-500">
-                                                            Current Qty: {item.qty} {item.uom} | Bin: {item.bin_location || 'N/A'}
-                                                        </span>
-                                                    </button>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    ) : (
-                                        <div className="p-4 text-center text-gray-500">
-                                            No items found matching "{quantitySearchQuery}"
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Selected Item Display */}
-                        {selectedItem && (
-                            <div className="mt-4">
-                                <div className="card bg-base-100 border-2 border-primary">
-                                    <div className="card-body p-3">
-                                        <div className="flex justify-between items-start">
-                                            <div className="flex-1">
-                                                <h4 className="font-bold text-sm mb-2">Selected Item</h4>
-                                                <div className="grid grid-cols-3 gap-2 text-xs">
-                                                    <div>
-                                                        <p className="text-gray-600">Consigned No</p>
-                                                        <p className="font-medium">{selectedItem.consigned?.consigned_no || selectedItem.consigned_no}</p>
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-gray-600">Item Code</p>
-                                                        <p className="font-medium">{selectedItem.item_code}</p>
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-gray-600">Supplier</p>
-                                                        <p className="font-medium">{selectedItem.supplier}</p>
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-gray-600">Current Qty</p>
-                                                        <p className="font-medium">{selectedItem.qty} {selectedItem.uom}</p>
-                                                    </div>
-                                                    <div className="col-span-2">
-                                                        <p className="text-gray-600">Material</p>
-                                                        <p className="font-medium">{selectedItem.consigned?.mat_description || '-'}</p>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <button 
-                                                className="btn btn-primary btn-sm ml-2"
-                                                onClick={handleAddToTable}
-                                            >
-                                                Add to Table
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
+                    {/* Add to Table Button */}
+                    <div className="flex justify-end mb-4">
+                        <button 
+                            className="btn btn-secondary btn-sm gap-2"
+                            onClick={handleAddItemToTable}
+                            disabled={!consignedDetails.item_code.trim() || !consignedDetails.supplier.trim() || !consignedDetails.qty}
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                            </svg>
+                            Add to Table
+                        </button>
                     </div>
-                </div>
 
-                {/* Items Table */}
-                <div className="card bg-base-200">
-                    <div className="card-body p-4">
-                        <div className="flex justify-between items-center mb-2">
-                            <h4 className="font-semibold text-sm">Items to Update ({selectedItems.length})</h4>
-                            {selectedItems.length > 0 && (
-                                <button 
-                                    className="btn btn-ghost btn-xs"
-                                    onClick={() => setSelectedItems([])}
-                                >
-                                    Clear All
-                                </button>
-                            )}
-                        </div>
-                        
-                        {selectedItems.length > 0 ? (
-                            <div className="overflow-x-auto">
-                                <table className="table table-sm w-full">
-                                    <thead>
-                                        <tr>
-                                            <th>Consigned No</th>
-                                            <th>Item Code</th>
-                                            <th>Supplier</th>
-                                            <th>Current Qty</th>
-                                            <th>Add Qty</th>
-                                            <th>New Qty</th>
-                                            <th>Action</th>
+                    {/* Data Table */}
+                    <div className="overflow-x-auto border rounded-lg">
+                        <table className="table table-sm w-full">
+                            <thead>
+                                <tr className="bg-base-200">
+                                    <th className="text-xs font-semibold">Consigned No</th>
+                                    <th className="text-xs font-semibold">Item Code</th>
+                                    <th className="text-xs font-semibold">Supplier</th>
+                                    <th className="text-xs font-semibold">Expiration</th>
+                                    <th className="text-xs font-semibold">UOM</th>
+                                    <th className="text-xs font-semibold">Bin Location</th>
+                                    <th className="text-xs font-semibold text-right">Qty</th>
+                                    <th className="text-xs font-semibold text-right">Qty/Box</th>
+                                    <th className="text-xs font-semibold text-right">Min</th>
+                                    <th className="text-xs font-semibold text-right">Max</th>
+                                    <th className="text-xs font-semibold text-right">Price</th>
+                                    <th className="text-xs font-semibold text-center">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {addedItems.length > 0 ? (
+                                    addedItems.map((item, index) => (
+                                        <tr key={item.id} className="hover">
+                                            <td className="text-sm">{tempConsignedNo}</td>
+                                            <td className="text-sm font-medium">{item.item_code}</td>
+                                            <td className="text-sm">{item.supplier}</td>
+                                            <td className="text-sm">{item.expiration || '-'}</td>
+                                            <td className="text-sm">{item.uom || '-'}</td>
+                                            <td className="text-sm">{item.bin_location || '-'}</td>
+                                            <td className="text-sm text-right">{item.qty}</td>
+                                            <td className="text-sm text-right">{item.qty_per_box || '-'}</td>
+                                            <td className="text-sm text-right">{item.minimum || '-'}</td>
+                                            <td className="text-sm text-right">{item.maximum || '-'}</td>
+                                            <td className="text-sm text-right">{item.price || '-'}</td>
+                                            <td className="text-center">
+                                                <button 
+                                                    className="btn btn-ghost btn-xs text-error"
+                                                    onClick={() => handleRemoveItem(item.id)}
+                                                    title="Remove item"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                                                    </svg>
+                                                </button>
+                                            </td>
                                         </tr>
-                                    </thead>
-                                    <tbody>
-                                        {selectedItems.map((item) => {
-                                            const currentQty = parseFloat(item.qty) || 0;
-                                            const addQty = parseFloat(item.quantityToAdd) || 0;
-                                            const newQty = currentQty + addQty;
-                                            
-                                            return (
-                                                <tr key={item.id}>
-                                                    <td className="font-medium">{item.consigned?.consigned_no || item.consigned_no}</td>
-                                                    <td>{item.item_code}</td>
-                                                    <td>{item.supplier}</td>
-                                                    <td>{currentQty} {item.uom}</td>
-                                                    <td>
-                                                        <input 
-                                                            type="number" 
-                                                            className="input input-bordered input-xs w-24"
-                                                            placeholder="0"
-                                                            value={item.quantityToAdd}
-                                                            onChange={(e) => handleTableQuantityChange(item.id, e.target.value)}
-                                                            min="0"
-                                                        />
-                                                    </td>
-                                                    <td>
-                                                        <span className={`font-semibold ${addQty > 0 ? 'text-success' : ''}`}>
-                                                            {newQty.toFixed(2)} {item.uom}
-                                                        </span>
-                                                    </td>
-                                                    <td>
-                                                        <button 
-                                                            className="btn btn-ghost btn-xs text-error"
-                                                            onClick={() => handleRemoveFromTable(item.id)}
-                                                        >
-                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                                                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                                                            </svg>
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        ) : (
-                            <div className="text-center py-8 text-gray-500">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto mb-2 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-                                </svg>
-                                <p>No items added yet</p>
-                                <p className="text-xs mt-1">Search and add items from above</p>
-                            </div>
-                        )}
+                                    ))
+                                ) : (
+                                    <tr>
+                                        <td colSpan="12" className="text-center py-8 text-gray-500 text-sm">
+                                            No items added yet. Fill in the fields above and click "Add to Table"
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
 
+            {/* Modal Footer - Fixed */}
+            <div className="px-6 py-4 border-t bg-base-100 sticky bottom-0 z-10">
+                <div className="flex justify-between items-center">
+                    <button 
+                        className="btn btn-ghost gap-2" 
+                        onClick={handleBackToItemInfo}
+                        disabled={isSaving}
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
+                        </svg>
+                        Back
+                    </button>
+                    <div className="flex gap-3">
+                        <button 
+                            className="btn btn-ghost"
+                            onClick={closeModal}
+                            disabled={isSaving}
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            className="btn btn-primary gap-2"
+                            onClick={handleSaveConsignedItem}
+                            disabled={isSaving || addedItems.length === 0}
+                        >
+                            {isSaving ? (
+                                <>
+                                    <span className="loading loading-spinner loading-sm"></span>
+                                    Saving...
+                                </>
+                            ) : (
+                                <>
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                    </svg>
+                                    Save {addedItems.length} Item{addedItems.length !== 1 ? 's' : ''}
+                                </>
+                            )}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div className="modal-backdrop bg-black/50" onClick={closeModal}></div>
+    </div>
+)}
+
+
+{/* View Details Modal */}
+{viewDetailsModal && selectedConsigned && (
+    <div className="modal modal-open">
+        <div className="modal-box max-w-6xl max-h-[95vh] w-[95vw] flex flex-col p-0">
+            <div className="px-6 pt-6 pb-4 border-b bg-base-100 sticky top-0 z-10">
+                <h3 className="font-bold text-xl">View Item Details</h3>
+                <button 
+                    className="btn btn-sm btn-circle btn-ghost absolute right-4 top-4"
+                    onClick={() => setViewDetailsModal(false)}
+                >
+                    ✕
+                </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+                {/* Card with Consigned No, Description, and Category */}
+                <div className="card bg-gradient-to-r from-primary/10 to-secondary/10 border border-base-300 mb-6">
+                    <div className="card-body p-4">
+                        <div className="flex items-center gap-2 mb-3">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-primary" viewBox="0 0 20 20" fill="currentColor">
+                                <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
+                                <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
+                            </svg>
+                            <h4 className="font-semibold text-base">Item Information</h4>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div className="space-y-1">
+                                <p className="text-xs font-medium text-base-content/60 uppercase">Consigned No</p>
+                                <p className="font-semibold text-sm text-primary">
+                                    {selectedConsigned.consigned_no}
+                                </p>
+                            </div>
+                            <div className="space-y-1">
+                                <p className="text-xs font-medium text-base-content/60 uppercase">Description</p>
+                                <p className="font-semibold text-sm">{selectedConsigned.mat_description}</p>
+                            </div>
+                            <div className="space-y-1">
+                                <p className="text-xs font-medium text-base-content/60 uppercase">Category</p>
+                                <p className="font-semibold text-sm">{selectedConsigned.category || '-'}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Consigned Details Header with Buttons */}
+                <div className="flex justify-between items-center mb-6">
+                    <div className="flex items-center gap-2">
+                        <h4 className="font-bold text-lg">Consigned Details</h4>
+                        <span className="badge badge-primary">
+                            {editableDetails.length || 0} items
+                        </span>
+                    </div>
+                    <div className="flex gap-2">
+                        {!editingDetails ? (
+                            <>
+                                <button 
+                                    className="btn btn-primary btn-sm gap-2"
+                                    onClick={openAddDetailsModal}
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                                    </svg>
+                                    Add Details
+                                </button>
+                                <button 
+                                    className="btn btn-secondary btn-sm gap-2"
+                                    onClick={() => setEditingDetails(true)}
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                    </svg>
+                                    Edit Details
+                                </button>
+                            </>
+                        ) : (
+                            <div className="flex gap-2">
+                                <button 
+                                    className="btn btn-success btn-sm gap-2"
+                                    onClick={handleSaveEditableDetails}
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                    </svg>
+                                    Save Changes
+                                </button>
+                                <button 
+                                    className="btn btn-ghost btn-sm gap-2"
+                                    onClick={() => {
+                                        setEditingDetails(false);
+                                        // Reset to original data
+                                        if (selectedConsigned.details) {
+                                            setEditableDetails([...selectedConsigned.details.map(detail => ({
+                                                ...detail,
+                                                isNew: false
+                                            }))]);
+                                        }
+                                    }}
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+{/* Data Table for Consigned Details */}
+<div className="overflow-x-auto border rounded-lg">
+    <table className="table table-sm w-full">
+        <thead>
+            <tr className="bg-base-200">
+                <th className="text-xs font-semibold">Item Code</th>
+                <th className="text-xs font-semibold">Supplier</th>
+                <th className="text-xs font-semibold">Expiration Date</th>
+                <th className="text-xs font-semibold">UOM</th>
+                <th className="text-xs font-semibold">Bin Location</th>
+                <th className="text-xs font-semibold text-right">Qty</th>
+                <th className="text-xs font-semibold text-right">Qty per Box</th>
+                <th className="text-xs font-semibold text-right">Min</th>
+                <th className="text-xs font-semibold text-right">Max</th>
+                <th className="text-xs font-semibold text-right">Price</th>
+                <th className="text-xs font-semibold text-center">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {editableDetails.length > 0 ? (
+                editableDetails.map((detail, index) => (
+                    <tr key={detail.id} className="hover">
+                        <td>
+                            {editingDetails ? (
+                                <input
+                                    type="text"
+                                    className="input input-bordered input-sm w-full"
+                                    value={detail.item_code}
+                                    onChange={(e) => handleDetailChange(index, 'item_code', e.target.value)}
+                                    placeholder="Item Code"
+                                />
+                            ) : (
+                                <span className="text-sm font-medium">{detail.item_code}</span>
+                            )}
+                        </td>
+                        <td>
+                            {editingDetails ? (
+                                <input
+                                    type="text"
+                                    className="input input-bordered input-sm w-full"
+                                    value={detail.supplier}
+                                    onChange={(e) => handleDetailChange(index, 'supplier', e.target.value)}
+                                    placeholder="Supplier"
+                                />
+                            ) : (
+                                <span className="text-sm">{detail.supplier}</span>
+                            )}
+                        </td>
+                        <td>
+                            {editingDetails ? (
+                                <input
+                                    type="date"
+                                    className="input input-bordered input-sm w-full"
+                                    value={detail.expiration || ''}
+                                    onChange={(e) => handleDetailChange(index, 'expiration', e.target.value)}
+                                />
+                            ) : (
+                                <span className="text-sm">
+                                    {detail.expiration 
+                                        ? new Date(detail.expiration).toLocaleDateString('en-US', {
+                                            year: 'numeric',
+                                            month: 'short',
+                                            day: 'numeric'
+                                          })
+                                        : '-'}
+                                </span>
+                            )}
+                        </td>
+                        <td>
+                            {editingDetails ? (
+                                <input
+                                    type="text"
+                                    className="input input-bordered input-sm w-full"
+                                    value={detail.uom || ''}
+                                    onChange={(e) => handleDetailChange(index, 'uom', e.target.value)}
+                                    placeholder="UOM"
+                                />
+                            ) : (
+                                <span className="text-sm">{detail.uom || '-'}</span>
+                            )}
+                        </td>
+                        <td>
+                            {editingDetails ? (
+                                <input
+                                    type="text"
+                                    className="input input-bordered input-sm w-full"
+                                    value={detail.bin_location}
+                                    onChange={(e) => handleDetailChange(index, 'bin_location', e.target.value)}
+                                    placeholder="Bin Location"
+                                />
+                            ) : (
+                                <span className="text-sm">{detail.bin_location || '-'}</span>
+                            )}
+                        </td>
+                        <td className="text-right">
+                            {editingDetails ? (
+                                <input
+                                    type="number"
+                                    className="input input-bordered input-sm w-full text-right"
+                                    value={detail.qty}
+                                    onChange={(e) => handleDetailChange(index, 'qty', e.target.value)}
+                                    placeholder="0"
+                                />
+                            ) : (
+                                <span className="text-sm">{detail.qty}</span>
+                            )}
+                        </td>
+                        <td className="text-right">
+                            {editingDetails ? (
+                                <input
+                                    type="number"
+                                    className="input input-bordered input-sm w-full text-right"
+                                    value={detail.qty_per_box}
+                                    onChange={(e) => handleDetailChange(index, 'qty_per_box', e.target.value)}
+                                    placeholder="0"
+                                />
+                            ) : (
+                                <span className="text-sm">{detail.qty_per_box || '-'}</span>
+                            )}
+                        </td>
+                        <td className="text-right">
+                            {editingDetails ? (
+                                <input
+                                    type="number"
+                                    className="input input-bordered input-sm w-full text-right"
+                                    value={detail.minimum}
+                                    onChange={(e) => handleDetailChange(index, 'minimum', e.target.value)}
+                                    placeholder="0"
+                                />
+                            ) : (
+                                <span className="text-sm">{detail.minimum || '-'}</span>
+                            )}
+                        </td>
+                        <td className="text-right">
+                            {editingDetails ? (
+                                <input
+                                    type="number"
+                                    className="input input-bordered input-sm w-full text-right"
+                                    value={detail.maximum}
+                                    onChange={(e) => handleDetailChange(index, 'maximum', e.target.value)}
+                                    placeholder="0"
+                                />
+                            ) : (
+                                <span className="text-sm">{detail.maximum || '-'}</span>
+                            )}
+                        </td>
+                        <td className="text-right">
+                            {editingDetails ? (
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    className="input input-bordered input-sm w-full text-right"
+                                    value={detail.price}
+                                    onChange={(e) => handleDetailChange(index, 'price', e.target.value)}
+                                    placeholder="0.00"
+                                />
+                            ) : (
+                                <span className="text-sm">{detail.price || '-'}</span>
+                            )}
+                        </td>
+                        <td>
+                            <button className="btn btn-sm btn-ghost" title="View History" onClick={() => openDetailHistory(detail)}>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                                </svg>
+                            </button>
+                            <button 
+                                className="btn btn-sm btn-ghost text-error" 
+                                title="Delete"
+                                onClick={() => openDeleteConfirmModal(detail)}
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                                </svg>
+                            </button>
+                        </td>
+                    </tr>
+                ))
+            ) : (
+                <tr>
+                    <td colSpan={editingDetails ? 11 : 10} className="text-center py-8 text-gray-500 text-sm">
+                        No consigned details found for this item
+                    </td>
+                </tr>
+            )}
+        </tbody>
+    </table>
+</div>
+            </div>
+
             {/* Modal Footer */}
+            <div className="px-6 py-4 border-t bg-base-100 sticky bottom-0 z-10">
+                <div className="flex justify-end">
+                    <button 
+                        className="btn btn-ghost"
+                        onClick={() => setViewDetailsModal(false)}
+                    >
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div className="modal-backdrop bg-black/50" onClick={() => setViewDetailsModal(false)}></div>
+    </div>
+)}
+{/* Add Details Modal */}
+{addDetailsModal && selectedConsigned && (
+    <div className="modal modal-open">
+        <div className="modal-box max-w-4xl">
+            <h3 className="font-bold text-xl mb-4">Add New Detail</h3>
+            <button 
+                className="btn btn-sm btn-circle btn-ghost absolute right-4 top-4"
+                onClick={closeAddDetailsModal}
+            >
+                ✕
+            </button>
+
+            <div className="mb-4 p-4 bg-base-200 rounded-lg">
+                <p className="text-sm"><span className="font-semibold">Consigned No:</span> {selectedConsigned.consigned_no}</p>
+                <p className="text-sm"><span className="font-semibold">Description:</span> {selectedConsigned.mat_description}</p>
+            </div>
+
+            <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                    <div className="form-control">
+                        <label className="label">
+                            <span className="label-text font-medium">Item Code <span className="text-error">*</span></span>
+                        </label>
+                        <input
+                            type="text"
+                            placeholder="Enter item code"
+                            className="input input-bordered w-full"
+                            value={newDetailData.item_code}
+                            onChange={(e) => setNewDetailData({ ...newDetailData, item_code: e.target.value })}
+                        />
+                    </div>
+
+                    <div className="form-control">
+                        <label className="label">
+                            <span className="label-text font-medium">Supplier <span className="text-error">*</span></span>
+                        </label>
+                        <input
+                            type="text"
+                            placeholder="Enter supplier name"
+                            className="input input-bordered w-full"
+                            value={newDetailData.supplier}
+                            onChange={(e) => setNewDetailData({ ...newDetailData, supplier: e.target.value })}
+                        />
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                    <div className="form-control">
+                        <label className="label">
+                            <span className="label-text font-medium">Unit of Measure <span className="text-error">*</span></span>
+                        </label>
+                        <input
+                            type="text"
+                            placeholder="e.g., PCS, BOX, KG"
+                            className="input input-bordered w-full"
+                            value={newDetailData.uom}
+                            onChange={(e) => setNewDetailData({ ...newDetailData, uom: e.target.value })}
+                        />
+                    </div>
+
+                    <div className="form-control">
+                        <label className="label">
+                            <span className="label-text font-medium">Quantity <span className="text-error">*</span></span>
+                        </label>
+                        <input
+                            type="number"
+                            placeholder="0"
+                            className="input input-bordered w-full"
+                            value={newDetailData.qty}
+                            onChange={(e) => setNewDetailData({ ...newDetailData, qty: e.target.value })}
+                        />
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                    <div className="form-control">
+                        <label className="label">
+                            <span className="label-text font-medium">Expiration Date</span>
+                        </label>
+                        <input
+                            type="date"
+                            className="input input-bordered w-full"
+                            value={newDetailData.expiration}
+                            onChange={(e) => setNewDetailData({ ...newDetailData, expiration: e.target.value })}
+                        />
+                    </div>
+
+                    <div className="form-control">
+                        <label className="label">
+                            <span className="label-text font-medium">Bin Location</span>
+                        </label>
+                        <input
+                            type="text"
+                            placeholder="e.g., A-01-05"
+                            className="input input-bordered w-full"
+                            value={newDetailData.bin_location}
+                            onChange={(e) => setNewDetailData({ ...newDetailData, bin_location: e.target.value })}
+                        />
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                    <div className="form-control">
+                        <label className="label">
+                            <span className="label-text font-medium">Qty Per Box</span>
+                        </label>
+                        <input
+                            type="number"
+                            placeholder="0"
+                            className="input input-bordered w-full"
+                            value={newDetailData.qty_per_box}
+                            onChange={(e) => setNewDetailData({ ...newDetailData, qty_per_box: e.target.value })}
+                        />
+                    </div>
+
+                    <div className="form-control">
+                        <label className="label">
+                            <span className="label-text font-medium">Price</span>
+                        </label>
+                        <input
+                            type="number"
+                            step="0.01"
+                            placeholder="0.00"
+                            className="input input-bordered w-full"
+                            value={newDetailData.price}
+                            onChange={(e) => setNewDetailData({ ...newDetailData, price: e.target.value })}
+                        />
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                    <div className="form-control">
+                        <label className="label">
+                            <span className="label-text font-medium">Minimum Stock</span>
+                        </label>
+                        <input
+                            type="number"
+                            placeholder="0"
+                            className="input input-bordered w-full"
+                            value={newDetailData.minimum}
+                            onChange={(e) => setNewDetailData({ ...newDetailData, minimum: e.target.value })}
+                        />
+                    </div>
+
+                    <div className="form-control">
+                        <label className="label">
+                            <span className="label-text font-medium">Maximum Stock</span>
+                        </label>
+                        <input
+                            type="number"
+                            placeholder="0"
+                            className="input input-bordered w-full"
+                            value={newDetailData.maximum}
+                            onChange={(e) => setNewDetailData({ ...newDetailData, maximum: e.target.value })}
+                        />
+                    </div>
+                </div>
+            </div>
+
             <div className="modal-action">
                 <button 
                     className="btn btn-ghost"
-                    onClick={() => {
-                        setIsQuantityModalOpen(false);
-                        setSelectedItems([]);
-                        setSelectedItem(null);
-                        setQuantitySearchQuery("");
-                        setFilteredItems([]);
-                    }}
+                    onClick={closeAddDetailsModal}
+                    disabled={isSaving}
                 >
                     Cancel
                 </button>
                 <button 
-                    className="btn btn-success"
-                    onClick={handleAddQuantity}
-                    disabled={selectedItems.length === 0 || isAddingQuantity}
+                    className="btn btn-primary"
+                    onClick={handleSaveNewDetail}
+                    disabled={isSaving || !newDetailData.item_code.trim() || !newDetailData.supplier.trim() || !newDetailData.qty || !newDetailData.uom.trim()}
                 >
-                    {isAddingQuantity ? (
+                    {isSaving ? (
                         <>
-                            <span className="loading loading-spinner loading-sm mr-2"></span>
-                            Updating...
+                            <span className="loading loading-spinner loading-sm"></span>
+                            Saving...
                         </>
                     ) : (
                         <>
-                            Update {selectedItems.length} Item{selectedItems.length !== 1 ? 's' : ''}
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                            </svg>
+                            Save Detail
                         </>
                     )}
                 </button>
             </div>
         </div>
+        <div className="modal-backdrop bg-black/50" onClick={closeAddDetailsModal}></div>
+    </div>
+)}
+
+{/* Add Quantity Modal */}
+{addQuantityModal && (
+    <div className="modal modal-open">
+        <div className="modal-box max-w-5xl max-h-[90vh] flex flex-col p-0">
+            <div className="px-6 pt-6 pb-4 border-b bg-base-100 sticky top-0 z-10">
+                <h3 className="font-bold text-xl">Add Quantity</h3>
+                <button 
+                    className="btn btn-sm btn-circle btn-ghost absolute right-4 top-4"
+                    onClick={closeAddQuantityModal}
+                >
+                    ✕
+                </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+                {/* Search Input */}
+                <div className="form-control mb-4">
+                    <label className="label">
+                        <span className="label-text font-medium">Search Select Item</span>
+                    </label>
+                    <input
+                        type="text"
+                        placeholder="Search by item code, description, or supplier..."
+                        className="input input-bordered w-full"
+                        value={quantitySearchQuery}
+                        onChange={handleQuantitySearch}
+                    />
+                    <label className="label">
+                        <span className="label-text-alt text-info">
+                            Type at least 2 characters to search
+                        </span>
+                    </label>
+                </div>
+
+                {/* Data Table */}
+                <div className="overflow-x-auto border rounded-lg">
+                    <table className="table table-sm w-full">
+                        <thead>
+                            <tr className="bg-base-200">
+                                <th className="text-xs font-semibold">Consigned No</th>
+                                <th className="text-xs font-semibold">Item Code</th>
+                                <th className="text-xs font-semibold">Description</th>
+                                <th className="text-xs font-semibold">Supplier</th>
+                                <th className="text-xs font-semibold">Expiration</th>
+                                <th className="text-xs font-semibold text-right">Current Qty</th>
+                                <th className="text-xs font-semibold w-32">Add Quantity</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {filteredConsignedItems.length > 0 ? (
+                                filteredConsignedItems.map((detail) => (
+                                    <tr key={`${detail.id}-${detail.detailId}`} className="hover">
+                                        <td className="text-sm font-medium text-primary">
+                                            {detail.consigned_no}
+                                        </td>
+                                        <td className="text-sm font-medium">
+                                            {detail.item_code || '-'}
+                                        </td>
+                                        <td className="text-sm">
+                                            {detail.mat_description}
+                                        </td>
+                                        <td className="text-sm">
+                                            {detail.supplier || '-'}
+                                        </td>
+                                        <td className="text-sm">
+                                            {detail.expiration 
+                                                ? new Date(detail.expiration).toLocaleDateString('en-US', {
+                                                    year: 'numeric',
+                                                    month: 'short',
+                                                    day: 'numeric'
+                                                })
+                                                : '-'}
+                                        </td>
+                                        <td className="text-sm text-right">
+                                            {detail.qty || 0}
+                                        </td>
+                                        <td>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="0.01"
+                                                placeholder="0"
+                                                className="input input-bordered input-sm w-full"
+                                                value={quantityInputs[detail.detailId] || ''}
+                                                onChange={(e) => handleQuantityInputChange(detail.detailId, e.target.value)}
+                                            />
+                                        </td>
+                                    </tr>
+                                ))
+                            ) : (
+                                <tr>
+                                    <td colSpan="7" className="text-center py-8 text-gray-500 text-sm">
+                                        {quantitySearchQuery.trim().length >= 2 
+                                            ? 'No items found matching your search'
+                                            : 'Enter search terms to find items'}
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t bg-base-100 sticky bottom-0 z-10">
+                <div className="flex justify-end gap-3">
+                    <button 
+                        className="btn btn-ghost"
+                        onClick={closeAddQuantityModal}
+                        disabled={isAddingQuantity}
+                    >
+                        Cancel
+                    </button>
+                    <button 
+                        className="btn btn-primary gap-2"
+                        onClick={handleSaveQuantities}
+                        disabled={isAddingQuantity || Object.keys(quantityInputs).length === 0}
+                    >
+                        {isAddingQuantity ? (
+                            <>
+                                <span className="loading loading-spinner loading-sm"></span>
+                                Saving...
+                            </>
+                        ) : (
+                            <>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                </svg>
+                                Save Quantities
+                            </>
+                        )}
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div className="modal-backdrop bg-black/50" onClick={closeAddQuantityModal}></div>
     </div>
 )}
 
 {/* Delete Confirmation Modal */}
-{isDeleteModalOpen && itemToDelete && (
+{deleteConfirmModal && detailToDelete && (
     <div className="modal modal-open">
         <div className="modal-box">
-            <h3 className="font-bold text-lg mb-4 text-error">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 inline-block mr-2" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                </svg>
-                Confirm Delete
-            </h3>
+            <h3 className="font-bold text-lg text-error mb-4">Confirm Delete</h3>
             
             <div className="alert alert-warning mb-4">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" className="stroke-current shrink-0 w-6 h-6">
+                <svg xmlns="http://www.w3.org/2000/svg" className="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
-                <div>
-                    <h3 className="font-bold">Warning!</h3>
-                    <div className="text-sm">This action cannot be undone. This will permanently delete the item and all its related details.</div>
-                </div>
+                <span>This action cannot be undone!</span>
             </div>
 
-            <div className="space-y-4">
-                <div className="bg-base-200 p-4 rounded-lg">
-                    <p className="text-sm font-semibold mb-2">Item to delete:</p>
-                    <div className="space-y-1">
-                        <p className="text-sm"><span className="font-medium">Consigned No:</span> {itemToDelete.consigned_no}</p>
-                        <p className="text-sm"><span className="font-medium">Material:</span> {itemToDelete.mat_description}</p>
-                        <p className="text-sm"><span className="font-medium">Category:</span> {itemToDelete.category}</p>
-                    </div>
-                </div>
+            <div className="space-y-3 mb-4">
+                <p className="text-sm"><strong>Item Code:</strong> {detailToDelete.item_code}</p>
+                <p className="text-sm"><strong>Supplier:</strong> {detailToDelete.supplier}</p>
+                <p className="text-sm"><strong>Quantity:</strong> {detailToDelete.qty}</p>
+            </div>
 
-                <div className="form-control">
-                    <label className="label">
-                        <span className="label-text font-semibold">Type <span className="text-error font-bold">CONFIRM</span> to delete:</span>
-                    </label>
-                    <input 
-                        type="text" 
-                        className={`input input-bordered w-full ${deleteConfirmText === "CONFIRM" ? "input-success" : deleteConfirmText.length > 0 ? "input-error" : ""}`}
-                        placeholder="Type CONFIRM here"
-                        value={deleteConfirmText}
-                        onChange={(e) => setDeleteConfirmText(e.target.value)}
-                        autoFocus
-                    />
-                    {deleteConfirmText.length > 0 && deleteConfirmText !== "CONFIRM" && (
-                        <label className="label">
-                            <span className="label-text-alt text-error">Must type exactly "CONFIRM" (case-sensitive)</span>
-                        </label>
-                    )}
-                </div>
+            <div className="form-control mb-4">
+                <label className="label">
+                    <span className="label-text">Type <span className="font-bold text-error">confirm</span> to delete this detail</span>
+                </label>
+                <input
+                    type="text"
+                    placeholder="Type 'confirm' here"
+                    className="input input-bordered w-full"
+                    value={deleteConfirmText}
+                    onChange={(e) => setDeleteConfirmText(e.target.value)}
+                    autoFocus
+                />
             </div>
 
             <div className="modal-action">
                 <button 
                     className="btn btn-ghost"
-                    onClick={handleCloseDeleteModal}
-                    disabled={isDeleting}
+                    onClick={closeDeleteConfirmModal}
+                    disabled={isSaving}
                 >
                     Cancel
                 </button>
                 <button 
                     className="btn btn-error"
                     onClick={handleConfirmDelete}
-                    disabled={deleteConfirmText !== "CONFIRM" || isDeleting}
+                    disabled={isSaving || deleteConfirmText.toLowerCase() !== 'confirm'}
                 >
-                    {isDeleting ? (
+                    {isSaving ? (
                         <>
-                            <span className="loading loading-spinner loading-sm mr-2"></span>
+                            <span className="loading loading-spinner loading-sm"></span>
                             Deleting...
                         </>
                     ) : (
@@ -1857,261 +2132,81 @@ const handleRemoveFromTable = (itemId) => {
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
                                 <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
                             </svg>
-                            Delete Permanently
+                            Delete Detail
                         </>
                     )}
                 </button>
             </div>
         </div>
+        <div className="modal-backdrop bg-black/50" onClick={closeDeleteConfirmModal}></div>
     </div>
 )}
 
-{/* Consigned Item History Modal */}
-{isHistoryModalOpen && historyItem && (
-    <div className="modal modal-open">
-        <div className="modal-box max-w-4xl">
-            <h3 className="font-bold text-lg mb-4">History: {historyItem.consigned_no}</h3>
-            
-            <div className="mb-4 p-3 bg-base-200 rounded">
-                <p className="text-sm"><strong>Material:</strong> {historyItem.mat_description}</p>
-                <p className="text-sm"><strong>Category:</strong> {historyItem.category}</p>
-            </div>
-
-            {isLoadingHistory ? (
-                <div className="flex justify-center items-center py-8">
-                    <span className="loading loading-spinner loading-lg"></span>
-                </div>
-            ) : historyData.length > 0 ? (
-                <div className="overflow-x-auto max-h-96">
-                    <table className="table table-sm w-full">
-                        <thead className="sticky top-0 bg-base-200">
-                            <tr>
-                                <th>Date/Time</th>
-                                <th>Action</th>
-                                <th>User</th>
-                                <th>Changes</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {historyData.map((record, index) => (
-                                <tr key={record.id || index}>
-                                    <td className="text-xs">
-                                        {new Date(record.created_at).toLocaleString()}
-                                    </td>
-                                    <td>
-                                        <span className={`badge badge-sm ${
-                                            record.action === 'created' ? 'badge-success' :
-                                            record.action === 'updated' ? 'badge-warning' :
-                                            'badge-error'
-                                        }`}>
-                                            {record.action}
-                                        </span>
-                                    </td>
-                                    <td className="text-xs">{record.user_name}</td>
-                                    <td className="text-xs">
-                                        {record.action === 'created' && (
-                                            <span className="text-success">Item created</span>
-                                        )}
-                                        {record.action === 'updated' && record.changes && (
-                                            <div className="space-y-1">
-                                                {record.changes.map((field, i) => (
-                                                    <div key={i}>
-                                                        <strong>{field}:</strong>
-                                                        <span className="text-error ml-1">
-                                                            {record.old_values?.[field] || 'N/A'}
-                                                        </span>
-                                                        →
-                                                        <span className="text-success ml-1">
-                                                            {record.new_values?.[field] || 'N/A'}
-                                                        </span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                        {record.action === 'deleted' && (
-                                            <span className="text-error">Item deleted</span>
-                                        )}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            ) : (
-                <div className="text-center py-8 text-gray-500">
-                    No history records found
-                </div>
-            )}
-
-            <div className="modal-action">
-                <button className="btn" onClick={handleCloseHistoryModal}>
-                    Close
-                </button>
-            </div>
-        </div>
-    </div>
-)}
-
-{/* Detail History Modal */}
-{isDetailHistoryModalOpen && detailHistoryItem && (
-    <div className="modal modal-open">
-        <div className="modal-box max-w-5xl">
-            <h3 className="font-bold text-lg mb-4">
-                Detail History: {detailHistoryItem.item_code}
-            </h3>
-            
-            <div className="mb-4 p-3 bg-base-200 rounded">
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                    <p><strong>Consigned No:</strong> {detailHistoryItem.consigned_no}</p>
-                    <p><strong>Supplier:</strong> {detailHistoryItem.supplier}</p>
-                    <p><strong>Current Qty:</strong> {detailHistoryItem.qty} {detailHistoryItem.uom}</p>
-                    <p><strong>Bin Location:</strong> {detailHistoryItem.bin_location || 'N/A'}</p>
-                </div>
-            </div>
-
-            {isLoadingHistory ? (
-                <div className="flex justify-center items-center py-8">
-                    <span className="loading loading-spinner loading-lg"></span>
-                </div>
-            ) : detailHistoryData.length > 0 ? (
-                <div className="overflow-x-auto max-h-96">
-                    <table className="table table-sm w-full">
-                        <thead className="sticky top-0 bg-base-200">
-                            <tr>
-                                <th>Date/Time</th>
-                                <th>Action</th>
-                                <th>User</th>
-                                <th>Changes</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {detailHistoryData.map((record, index) => (
-                                <tr key={record.id || index}>
-                                    <td className="text-xs">
-                                        {new Date(record.created_at).toLocaleString()}
-                                    </td>
-                                    <td>
-                                        <span className={`badge badge-sm ${
-                                            record.action === 'created' ? 'badge-success' :
-                                            record.action === 'updated' ? 'badge-warning' :
-                                            'badge-error'
-                                        }`}>
-                                            {record.action}
-                                        </span>
-                                    </td>
-                                    <td className="text-xs">{record.user_name}</td>
-                                    <td className="text-xs">
-                                        {record.action === 'created' && (
-                                            <span className="text-success">Detail created</span>
-                                        )}
-                                        {record.action === 'updated' && record.changes && (
-                                            <div className="space-y-1">
-                                                {record.changes.map((field, i) => (
-                                                    <div key={i}>
-                                                        <strong>{field}:</strong>
-                                                        <span className="text-error ml-1">
-                                                            {String(record.old_values?.[field] || 'N/A')}
-                                                        </span>
-                                                        →
-                                                        <span className="text-success ml-1">
-                                                            {String(record.new_values?.[field] || 'N/A')}
-                                                        </span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                        {record.action === 'deleted' && (
-                                            <span className="text-error">Detail deleted</span>
-                                        )}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            ) : (
-                <div className="text-center py-8 text-gray-500">
-                    No history records found
-                </div>
-            )}
-
-            <div className="modal-action">
-                <button className="btn" onClick={handleCloseDetailHistoryModal}>
-                    Close
-                </button>
-            </div>
-        </div>
-    </div>
-)}
-
-{/* Delete Detail Confirmation Modal */}
-{isDeleteDetailModalOpen && detailToDelete && (
+{/* Delete Consigned Confirmation Modal */}
+{deleteConsignedModal && consignedToDelete && (
     <div className="modal modal-open">
         <div className="modal-box">
-            <h3 className="font-bold text-lg mb-4 text-error">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 inline-block mr-2" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                </svg>
-                Confirm Delete Detail
-            </h3>
+            <h3 className="font-bold text-lg text-error mb-4">Confirm Delete Consigned Item</h3>
             
-            <div className="alert alert-warning mb-4">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" className="stroke-current shrink-0 w-6 h-6">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            <div className="alert alert-error mb-4">
+                <svg xmlns="http://www.w3.org/2000/svg" className="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <div>
-                    <h3 className="font-bold">Warning!</h3>
-                    <div className="text-sm">This action cannot be undone. This will permanently delete this detail.</div>
+                    <div className="font-bold">Warning: This will delete all related data!</div>
+                    <div className="text-sm">All consigned details associated with this item will be permanently deleted.</div>
                 </div>
             </div>
 
-            <div className="space-y-4">
-                <div className="bg-base-200 p-4 rounded-lg">
-                    <p className="text-sm font-semibold mb-2">Detail to delete:</p>
-                    <div className="space-y-1">
-                        <p className="text-sm"><span className="font-medium">Consigned No:</span> {detailToDelete.consigned_no}</p>
-                        <p className="text-sm"><span className="font-medium">Item Code:</span> {detailToDelete.item_code}</p>
-                        <p className="text-sm"><span className="font-medium">Supplier:</span> {detailToDelete.supplier}</p>
-                        <p className="text-sm"><span className="font-medium">Quantity:</span> {detailToDelete.qty} {detailToDelete.uom}</p>
-                    </div>
+            <div className="space-y-3 mb-4 bg-base-200 p-4 rounded-lg">
+                <div className="flex justify-between">
+                    <span className="font-semibold">Consigned No:</span>
+                    <span className="text-primary font-bold">{consignedToDelete.consigned_no}</span>
                 </div>
+                <div className="flex justify-between">
+                    <span className="font-semibold">Description:</span>
+                    <span>{consignedToDelete.mat_description}</span>
+                </div>
+                <div className="flex justify-between">
+                    <span className="font-semibold">Category:</span>
+                    <span>{consignedToDelete.category || '-'}</span>
+                </div>
+                <div className="flex justify-between">
+                    <span className="font-semibold">Total Details:</span>
+                    <span className="badge badge-warning">{consignedToDelete.details?.length || 0} records</span>
+                </div>
+            </div>
 
-                <div className="form-control">
-                    <label className="label">
-                        <span className="label-text font-semibold">Type <span className="text-error font-bold">CONFIRM</span> to delete:</span>
-                    </label>
-                    <input 
-                        type="text" 
-                        className={`input input-bordered w-full ${deleteDetailConfirmText === "CONFIRM" ? "input-success" : deleteDetailConfirmText.length > 0 ? "input-error" : ""}`}
-                        placeholder="Type CONFIRM here"
-                        value={deleteDetailConfirmText}
-                        onChange={(e) => setDeleteDetailConfirmText(e.target.value)}
-                        autoFocus
-                    />
-                    {deleteDetailConfirmText.length > 0 && deleteDetailConfirmText !== "CONFIRM" && (
-                        <label className="label">
-                            <span className="label-text-alt text-error">Must type exactly "CONFIRM" (case-sensitive)</span>
-                        </label>
-                    )}
-                </div>
+            <div className="form-control mb-4">
+                <label className="label">
+                    <span className="label-text">Type <span className="font-bold text-error">confirm</span> to delete this consigned item and all its details</span>
+                </label>
+                <input
+                    type="text"
+                    placeholder="Type 'confirm' here"
+                    className="input input-bordered w-full"
+                    value={deleteConsignedConfirmText}
+                    onChange={(e) => setDeleteConsignedConfirmText(e.target.value)}
+                    autoFocus
+                />
             </div>
 
             <div className="modal-action">
                 <button 
                     className="btn btn-ghost"
-                    onClick={handleCloseDeleteDetailModal}
-                    disabled={isDeletingDetail}
+                    onClick={closeDeleteConsignedModal}
+                    disabled={isSaving}
                 >
                     Cancel
                 </button>
                 <button 
                     className="btn btn-error"
-                    onClick={handleConfirmDeleteDetail}
-                    disabled={deleteDetailConfirmText !== "CONFIRM" || isDeletingDetail}
+                    onClick={handleConfirmDeleteConsigned}
+                    disabled={isSaving || deleteConsignedConfirmText.toLowerCase() !== 'confirm'}
                 >
-                    {isDeletingDetail ? (
+                    {isSaving ? (
                         <>
-                            <span className="loading loading-spinner loading-sm mr-2"></span>
+                            <span className="loading loading-spinner loading-sm"></span>
                             Deleting...
                         </>
                     ) : (
@@ -2119,12 +2214,146 @@ const handleRemoveFromTable = (itemId) => {
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
                                 <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
                             </svg>
-                            Delete Permanently
+                            Delete Consigned Item
                         </>
                     )}
                 </button>
             </div>
         </div>
+        <div className="modal-backdrop bg-black/50" onClick={closeDeleteConsignedModal}></div>
+    </div>
+)}
+{/* History Modal */}
+{historyModal && (
+    <div className="modal modal-open">
+        <div className="modal-box max-w-5xl max-h-[90vh] w-[95vw] flex flex-col p-0">
+            <div className="px-6 pt-6 pb-4 border-b bg-base-100 sticky top-0 z-10">
+                <h3 className="font-bold text-xl">
+                    {historyType === 'consigned' ? 'Consigned History' : 'Consigned Detail History'}
+                </h3>
+                {historyType === 'consigned' && selectedConsigned && (
+                    <div className="mt-2 text-sm">
+                        <p><span className="font-semibold">Consigned No:</span> {selectedConsigned.consigned_no}</p>
+                        <p><span className="font-semibold">Description:</span> {selectedConsigned.mat_description}</p>
+                    </div>
+                )}
+                {historyType === 'detail' && selectedDetailForHistory && (
+                    <div className="mt-2 text-sm">
+                        <p><span className="font-semibold">Item Code:</span> {selectedDetailForHistory.item_code}</p>
+                        <p><span className="font-semibold">Supplier:</span> {selectedDetailForHistory.supplier}</p>
+                        <p><span className="font-semibold">Consigned No:</span> {selectedConsigned?.consigned_no}</p>
+                    </div>
+                )}
+                <button 
+                    className="btn btn-sm btn-circle btn-ghost absolute right-4 top-4"
+                    onClick={closeHistoryModal}
+                >
+                    ✕
+                </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+                {historyLoading ? (
+                    <div className="flex justify-center items-center h-64">
+                        <span className="loading loading-spinner loading-lg"></span>
+                        <span className="ml-3">Loading history...</span>
+                    </div>
+                ) : historyData.length > 0 ? (
+                    <div className="space-y-4">
+                        {historyData.map((record, index) => (
+                            <div key={index} className="card bg-base-100 border shadow-sm">
+                                <div className="card-body p-4">
+                                    <div className="flex justify-between items-start mb-2">
+                                        <div className="flex items-center gap-2">
+                                            <span className="badge badge-sm" style={{
+                                                backgroundColor: getActionColor(record.action),
+                                                color: 'white'
+                                            }}>
+                                                {getActionLabel(record.action)}
+                                            </span>
+                                            <span className="text-xs text-gray-500">
+                                                {new Date(record.created_at).toLocaleString()}
+                                            </span>
+                                        </div>
+                                        <div className="text-sm font-medium">
+                                            User: {record.user_name || 'System'}
+                                        </div>
+                                    </div>
+                                    
+                                    {record.changes && record.changes.length > 0 && (
+                                        <div className="mt-2">
+                                            <p className="text-sm font-semibold mb-1">Changes:</p>
+                                            <ul className="list-disc list-inside text-sm space-y-1">
+                                                {record.changes.map((change, i) => (
+                                                    <li key={i} className="text-gray-700">{change}</li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
+                                    
+                                    {(record.old_values || record.new_values) && (
+                                        <div className="grid grid-cols-2 gap-4 mt-3">
+                                            {record.old_values && Object.keys(record.old_values).length > 0 && (
+                                                <div>
+                                                    <p className="text-sm font-semibold mb-1 text-error">Old Values:</p>
+                                                    {Object.entries(record.old_values).map(([key, value]) => (
+                                                        <p key={key} className="text-xs">
+                                                            <span className="font-medium">{key}:</span> {value !== null ? value.toString() : 'null'}
+                                                        </p>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            {record.new_values && Object.keys(record.new_values).length > 0 && (
+                                                <div>
+                                                    <p className="text-sm font-semibold mb-1 text-success">New Values:</p>
+                                                    {Object.entries(record.new_values).map(([key, value]) => (
+                                                        <p key={key} className="text-xs">
+                                                            <span className="font-medium">{key}:</span> {value !== null ? value.toString() : 'null'}
+                                                        </p>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                    
+                                    {historyType === 'detail' && record.consigned_no && (
+                                        <div className="mt-2 pt-2 border-t">
+                                            <p className="text-xs text-gray-500">
+                                                Consigned No: <span className="font-medium">{record.consigned_no}</span>
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="flex flex-col items-center justify-center h-64">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-gray-400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <p className="text-gray-500">No history records found</p>
+                    </div>
+                )}
+            </div>
+
+            <div className="px-6 py-4 border-t bg-base-100 sticky bottom-0 z-10">
+                <div className="flex justify-between items-center">
+                    <div className="text-sm text-gray-500">
+                        Showing {historyData.length} history records
+                    </div>
+                    <div className="flex gap-3">
+                        <button 
+                            className="btn btn-ghost btn-sm"
+                            onClick={closeHistoryModal}
+                        >
+                            Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div className="modal-backdrop bg-black/50" onClick={closeHistoryModal}></div>
     </div>
 )}
         </AuthenticatedLayout>

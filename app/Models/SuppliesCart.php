@@ -5,7 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class ConsumableCart extends Model
+class SuppliesCart extends Model
 {
     use HasFactory;
 
@@ -17,7 +17,7 @@ class ConsumableCart extends Model
     /**
      * Table name
      */
-    protected $table = 'consumable_cart';
+    protected $table = 'supplies_cart';
 
     /**
      * Primary key
@@ -35,7 +35,7 @@ class ConsumableCart extends Model
     public $incrementing = true;
 
     /**
-     * Mass assignable fields
+     * Mass assignable attributes
      */
     protected $fillable = [
         'mrs_no',
@@ -51,21 +51,19 @@ class ConsumableCart extends Model
         'itemCode',
         'material_description',
         'detailed_description',
-        'serial',
-        'bin_location',
         'quantity',
         'uom',
-        'request_quantity',
-        'issued_quantity',
+        'request_qty',
+        'issued_qty',
     ];
 
     /**
      * Attribute casting
      */
     protected $casts = [
-        'order_date'        => 'date',
-        'quantity'          => 'decimal:2',
-        'request_quantity'  => 'decimal:2',
-        'issued_quantity'   => 'decimal:2',
+        'order_date'   => 'date',
+        'quantity'     => 'decimal:2',
+        'request_qty'  => 'decimal:2',
+        'issued_qty'   => 'decimal:2',
     ];
 }

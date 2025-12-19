@@ -21,7 +21,7 @@ Route::prefix($app_name)->middleware(AuthMiddleware::class)->group(function () {
     Route::patch("/change-admin-role", [AdminController::class, 'changeAdminRole'])->name('changeAdminRole');
   });
 
-  Route::get("/", [DashboardController::class, 'index'])->name('dashboard');
+  Route::get("/dashboard", [DashboardController::class, 'index'])->name('dashboard');
   Route::get("/profile", [ProfileController::class, 'index'])->name('profile.index');
   Route::post("/change-password", [ProfileController::class, 'changePassword'])->name('changePassword');
 });

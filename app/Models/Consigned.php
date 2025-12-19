@@ -16,6 +16,10 @@ class Consigned extends Model
         'consigned_no',
         'mat_description',
         'category',
+
+        // ✅ newly added fields
+        'selected_itemcode',
+        'selected_supplier',
     ];
 
     public function details()
@@ -29,9 +33,9 @@ class Consigned extends Model
     }
 
     /**
-     * Log history when creating a new consigned item
+     * Log history when creating, updating, deleting
      */
-    public static function boot()
+    protected static function boot()
     {
         parent::boot();
 

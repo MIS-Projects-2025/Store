@@ -5,7 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class ConsumableCart extends Model
+class ConsignedCart extends Model
 {
     use HasFactory;
 
@@ -17,7 +17,7 @@ class ConsumableCart extends Model
     /**
      * Table name
      */
-    protected $table = 'consumable_cart';
+    protected $table = 'consigned_cart';
 
     /**
      * Primary key
@@ -35,37 +35,37 @@ class ConsumableCart extends Model
     public $incrementing = true;
 
     /**
-     * Mass assignable fields
+     * Mass assignable attributes
      */
     protected $fillable = [
         'mrs_no',
         'order_date',
-        'emp_id',
-        'emp_name',
-        'approver',
-        'department',
-        'prodline',
-        'mrs_status',
-        'approver_status',
+        'employee_no',
+        'factory',
+        'station',
         'issued_by',
-        'itemCode',
+        'mrs_status',
+        'item_code',
         'material_description',
-        'detailed_description',
-        'serial',
+        'supplier',
+        'expiration',
         'bin_location',
         'quantity',
         'uom',
-        'request_quantity',
-        'issued_quantity',
+        'qty_per_box',
+        'request_qty',
+        'issued_qty',
     ];
 
     /**
      * Attribute casting
      */
     protected $casts = [
-        'order_date'        => 'date',
-        'quantity'          => 'decimal:2',
-        'request_quantity'  => 'decimal:2',
-        'issued_quantity'   => 'decimal:2',
+        'order_date'   => 'date',
+        'expiration'   => 'date',
+        'quantity'     => 'decimal:2',
+        'qty_per_box'  => 'decimal:2',
+        'request_qty'  => 'decimal:2',
+        'issued_qty'   => 'decimal:2',
     ];
 }

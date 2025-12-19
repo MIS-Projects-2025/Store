@@ -36,6 +36,8 @@ class ConsignedDetail extends Model
         return $this->hasMany(ConsignedDetailHistory::class, 'consigned_detail_id');
     }
 
+    
+
     /**
      * Log history when creating, updating, or deleting detail
      */
