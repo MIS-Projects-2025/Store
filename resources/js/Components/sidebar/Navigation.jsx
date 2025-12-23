@@ -18,9 +18,15 @@ export default function NavLinks() {
     
     // Get user type from job title
     const userType = emp_data?.emp_jobtitle?.toLowerCase() || '';
+    
+    // Check if user is administrator
+    const isAdministrator = emp_data?.emp_station == 1 && emp_data?.emp_jobtitle === "Store User";
 
     // Simple access check
     const canView = (allowedUsers) => {
+        // Administrator has access to everything
+        if (isAdministrator && allowedUsers.includes('administrator')) return true;
+        
         if (userType.includes('consigned')) return allowedUsers.includes('consigned');
         if (userType.includes('store')) return allowedUsers.includes('store');
         return allowedUsers.includes('employee');
@@ -30,39 +36,39 @@ export default function NavLinks() {
     const navItems = [
         {
             type: 'link',
-            show: canView(['employee', 'consigned', 'store']),
+            show: canView(['employee', 'consigned', 'store', 'administrator']),
             href: route("dashboard"),
             label: "Dashboard",
             icon: <HiSquares2X2 className="w-5 h-5" />
         },
         {
             type: 'link',
-            show: canView(['store']),
+            show: canView(['store', 'administrator']),
             href: route("material-issuance"),
             label: "Material Issuance",
             icon: <HiDocumentArrowUp className="w-5 h-5" />
         },
         {
             type: 'dropdown',
-            show: canView(['store']),
+            show: canView(['store', 'administrator']),
             label: "Manage Material",
             icon: <HiFolderOpen className="w-5 h-5" />,
             notifications: true,
             links: [
                 {
-                    show: canView(['store']),
+                    show: canView(['store', 'administrator']),
                     href: route("consumable"),
                     label: "Consumable & Spares",
                     icon: <HiCube className="w-5 h-5" />
                 },
                 {
-                    show: canView(['store']),
+                    show: canView(['store', 'administrator']),
                     href: route("supplies"),
                     label: "Supplies",
                     icon: <HiArchiveBox className="w-5 h-5" />
                 },
                 {
-                    show: canView(['store']),
+                    show: canView(['store', 'administrator']),
                     href: route("consigned"),
                     label: "Consigned",
                     icon: <HiClipboardDocumentList className="w-5 h-5" />
@@ -71,7 +77,7 @@ export default function NavLinks() {
         },
         {
             type: 'link',
-            show: canView(['store']),
+            show: canView(['store', 'administrator']),
             href: route("export"),
             label: "Export",
             icon: <HiDocumentArrowDown className="w-5 h-5" />
@@ -89,8 +95,23 @@ export default function NavLinks() {
             href: route("approval"),
             label: "Approval Request",
             icon: <HiCheckBadge className="w-5 h-5" />
+        },        
+        {
+            type: 'link',
+            show: canView(['administrator']),
+            href: route("adminUser"),
+            label: "Administrator List",
+            icon: <HiDocumentArrowUp className="w-5 h-5" />
+        },
+                {
+            type: 'link',
+            show: canView(['administrator']),
+            href: route("consignedUser"),
+            label: "Consigned User",
+            icon: <HiDocumentArrowUp className="w-5 h-5" />
         }
     ];
+    
 
     return (
         <nav className="flex flex-col flex-grow space-y-1 overflow-y-auto" style={{ scrollbarWidth: "none" }}>
