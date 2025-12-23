@@ -1,7 +1,6 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\OrderMaterialController;
 use App\Http\Controllers\MaterialIssuanceController;
 use App\Http\Middleware\AuthMiddleware;
@@ -99,4 +98,14 @@ Route::prefix($app_name)
         // Replace Item
         Route::post('/material-issuance.replace-item.consigned', [MaterialIssuanceController::class, 'replaceItemConsigned'])
             ->name('material-issuance.replace-item-consigned');
+
+        // Add these routes in your web.php file
+        Route::post('/material-issuance/update-consumable-remarks', [MaterialIssuanceController::class, 'updateConsumableRemarks'])
+            ->name('material-issuance.update-consumable-remarks');
+
+        Route::post('/material-issuance/update-supplies-remarks', [MaterialIssuanceController::class, 'updateSuppliesRemarks'])
+            ->name('material-issuance.update-supplies-remarks');
+
+        Route::post('/material-issuance/update-consigned-remarks', [MaterialIssuanceController::class, 'updateConsignedRemarks'])
+            ->name('material-issuance.update-consigned-remarks');
     });

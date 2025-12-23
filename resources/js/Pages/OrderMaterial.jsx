@@ -1,9 +1,12 @@
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout";
 import { Head, usePage, router } from "@inertiajs/react";
-import { useState, useEffect  } from "react";
+import { FileArchive } from "lucide-react";
+import { useState, useEffect, useMemo  } from "react";
 
-export default function OrderMaterial({ consumables, supplies, consigned }) {
+export default function OrderMaterial({ consumables, supplies, consigned,approverList }) {
     const props = usePage().props;
+    console.log(usePage().props);
+    
     const emp_data = props.emp_data;
     const [selectedApprover, setSelectedApprover] = useState("");
     const [activeTab, setActiveTab] = useState("consumable");
@@ -18,7 +21,8 @@ export default function OrderMaterial({ consumables, supplies, consigned }) {
     const [cartItems, setCartItems] = useState([]);
     const [isCartModalOpen, setIsCartModalOpen] = useState(false);
     const isConsignedUser = emp_data?.emp_jobtitle === 'Consigned User';
-
+    const [approverSearch, setApproverSearch] = useState("");
+    
     useEffect(() => {
     if (isConsignedUser) {
         setActiveTab("consigned");
@@ -58,7 +62,8 @@ const handleSubmitOrder = () => {
                 serial: item.serial,
                 quantity: item.quantity,
                 uom: item.uom,
-                requestQuantity: item.requestQuantity
+                requestQuantity: item.requestQuantity,
+                remarks: item.remarks || null
             }))
         };
 
@@ -85,7 +90,8 @@ const handleSubmitOrder = () => {
                 detailedDescription: item.detailedDescription,
                 quantity: item.quantity,
                 uom: item.uom,
-                requestQuantity: item.requestQuantity
+                requestQuantity: item.requestQuantity,
+                remarks: item.remarks || null
             }))
         };
 
@@ -121,7 +127,8 @@ const handleSubmitOrder = () => {
                 supplier: item.supplier,
                 quantity: item.quantity,
                 uom: item.uom,
-                requestQuantity: item.requestQuantity
+                requestQuantity: item.requestQuantity,
+                remarks: item.remarks || null
             });
             return groups;
         }, {});
@@ -512,20 +519,63 @@ const addToCart = (item, type) => {
         </select>
     </div>
 ) : !isConsignedUser ? (
-    <div>
-        <h3 className="text-info font-semibold mb-3">Approver</h3>
-        <select 
-            className="select select-bordered w-full"
-            value={selectedApprover}
-            onChange={(e) => setSelectedApprover(e.target.value)}
-        >
-            <option value="" disabled>Select an Approver</option>
-            <option value="approver1">John Doe</option>
-            <option value="approver2">Jane Smith</option>
-            <option value="approver3">Mike Johnson</option>
-            <option value="approver4">Sarah Williams</option>
-        </select>
+<div>
+  <h3 className="text-info font-semibold mb-3">Approver</h3>
+
+  <div className="dropdown w-full">
+    <label
+      tabIndex={0}
+      className="input input-bordered w-full flex items-center justify-between cursor-pointer"
+    >
+      {selectedApprover
+        ? approverList.find(a => a.EMPLOYID === selectedApprover)?.EMPNAME
+          ? `${selectedApprover} - ${
+              approverList.find(a => a.EMPLOYID === selectedApprover)?.EMPNAME
+            }`
+          : selectedApprover
+        : "Select an Approver"}
+    </label>
+
+    <div
+      tabIndex={0}
+      className="dropdown-content z-[1] mt-2 w-full rounded-box bg-base-100 shadow"
+    >
+      {/* Search input */}
+      <input
+        type="text"
+        className="input input-bordered w-full mb-2"
+        placeholder="Search approver..."
+        value={approverSearch}
+        onChange={(e) => setApproverSearch(e.target.value)}
+      />
+
+      {/* Result list */}
+      <ul className="menu max-h-60 overflow-y-auto">
+        {approverList
+          ?.filter(a =>
+            `${a.EMPLOYID} ${a.EMPNAME}`
+              .toLowerCase()
+              .includes(approverSearch.toLowerCase())
+          )
+          .map(approver => (
+            <li key={approver.EMPLOYID}>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedApprover(approver.EMPNAME);
+                  setApproverSearch("");
+                  document.activeElement.blur(); // closes dropdown
+                }}
+              >
+                {approver.EMPLOYID} - {approver.EMPNAME}
+              </button>
+            </li>
+          ))}
+      </ul>
     </div>
+  </div>
+</div>
+
 ) : null}
                         </div>
                     </div>
@@ -994,6 +1044,7 @@ const addToCart = (item, type) => {
  </div>
 
 {/* Cart Modal */}
+{/* Cart Modal */}
 {isCartModalOpen && (
     <div className="modal modal-open">
         <div className="modal-box max-w-6xl">
@@ -1004,7 +1055,7 @@ const addToCart = (item, type) => {
                     "Consigned"
                 }
             </h3>
-            
+           
             <div className="overflow-x-auto">
                 {cartItems.length > 0 ? (
                     <>
@@ -1020,6 +1071,7 @@ const addToCart = (item, type) => {
                                         <th>Quantity</th>
                                         <th>UOM</th>
                                         <th>Request Quantity</th>
+                                        <th className="min-w-[200px]">Remarks</th>
                                         <th>Action</th>
                                     </tr>
                                 </thead>
@@ -1047,6 +1099,23 @@ const addToCart = (item, type) => {
                                                                 prev.map(cartItem => 
                                                                     cartItem.cartId === item.cartId 
                                                                         ? {...cartItem, requestQuantity: newQuantity}
+                                                                        : cartItem
+                                                                )
+                                                            );
+                                                        }}
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <textarea
+                                                        className="textarea textarea-bordered textarea-sm w-full min-w-[200px]"
+                                                        placeholder="Add remarks (optional)..."
+                                                        rows="2"
+                                                        value={item.remarks || ''}
+                                                        onChange={(e) => {
+                                                            setCartItems(prev => 
+                                                                prev.map(cartItem => 
+                                                                    cartItem.cartId === item.cartId 
+                                                                        ? {...cartItem, remarks: e.target.value}
                                                                         : cartItem
                                                                 )
                                                             );
@@ -1082,6 +1151,7 @@ const addToCart = (item, type) => {
                                         <th>Quantity</th>
                                         <th>UOM</th>
                                         <th>Request Quantity</th>
+                                        <th className="min-w-[200px]">Remarks</th>
                                         <th>Action</th>
                                     </tr>
                                 </thead>
@@ -1115,6 +1185,23 @@ const addToCart = (item, type) => {
                                                     />
                                                 </td>
                                                 <td>
+                                                    <textarea
+                                                        className="textarea textarea-bordered textarea-sm w-full min-w-[200px]"
+                                                        placeholder="Add remarks (optional)..."
+                                                        rows="2"
+                                                        value={item.remarks || ''}
+                                                        onChange={(e) => {
+                                                            setCartItems(prev => 
+                                                                prev.map(cartItem => 
+                                                                    cartItem.cartId === item.cartId 
+                                                                        ? {...cartItem, remarks: e.target.value}
+                                                                        : cartItem
+                                                                )
+                                                            );
+                                                        }}
+                                                    />
+                                                </td>
+                                                <td>
                                                     <button 
                                                         className="btn btn-sm btn-error"
                                                         onClick={() => {
@@ -1132,109 +1219,126 @@ const addToCart = (item, type) => {
                             </table>
                         )}
 
-{/* Consigned Table - Grouped by Employee ID and Factory */}
-{activeTab === "consigned" && isConsignedUser && (() => {
-    // Group items by employeeId and factory
-    const groupedConsignedItems = cartItems
-        .filter(item => item.type === "consigned")
-        .reduce((groups, item) => {
-            const key = `${item.employeeId}|${item.factory}`;
-            if (!groups[key]) {
-                groups[key] = {
-                    employeeId: item.employeeId,
-                    factory: item.factory,
-                    items: []
-                };
-            }
-            groups[key].items.push(item);
-            return groups;
-        }, {});
+                        {/* Consigned Table - Grouped by Employee ID and Factory */}
+                        {activeTab === "consigned" && isConsignedUser && (() => {
+                            const groupedConsignedItems = cartItems
+                                .filter(item => item.type === "consigned")
+                                .reduce((groups, item) => {
+                                    const key = `${item.employeeId}|${item.factory}`;
+                                    if (!groups[key]) {
+                                        groups[key] = {
+                                            employeeId: item.employeeId,
+                                            factory: item.factory,
+                                            items: []
+                                        };
+                                    }
+                                    groups[key].items.push(item);
+                                    return groups;
+                                }, {});
 
-    const groups = Object.values(groupedConsignedItems);
+                            const groups = Object.values(groupedConsignedItems);
 
-    return (
-        <div className="space-y-6">
-            {groups.map((group, groupIndex) => (
-                <div key={groupIndex} className="border border-base-300 rounded-lg p-4">
-                    {/* Group Header */}
-                    <div className="bg-base-200 p-3 rounded-lg mb-4">
-                        <div className="grid grid-cols-3 gap-4">
-                            <div>
-                                <span className="font-semibold text-sm">Employee ID:</span>
-                                <span className="ml-2 text-sm">{group.employeeId}</span>
-                            </div>
-                            <div>
-                                <span className="font-semibold text-sm">Factory:</span>
-                                <span className="ml-2 text-sm">{group.factory}</span>
-                            </div>
-                            <div>
-                                <span className="font-semibold text-sm">Station:</span>
-                                <span className="ml-2 text-sm">{emp_data?.emp_station || 'N/A'}</span>
-                            </div>
-                        </div>
-                    </div>
+                            return (
+                                <div className="space-y-6">
+                                    {groups.map((group, groupIndex) => (
+                                        <div key={groupIndex} className="border border-base-300 rounded-lg p-4">
+                                            {/* Group Header */}
+                                            <div className="bg-base-200 p-3 rounded-lg mb-4">
+                                                <div className="grid grid-cols-3 gap-4">
+                                                    <div>
+                                                        <span className="font-semibold text-sm">Employee ID:</span>
+                                                        <span className="ml-2 text-sm">{group.employeeId}</span>
+                                                    </div>
+                                                    <div>
+                                                        <span className="font-semibold text-sm">Factory:</span>
+                                                        <span className="ml-2 text-sm">{group.factory}</span>
+                                                    </div>
+                                                    <div>
+                                                        <span className="font-semibold text-sm">Station:</span>
+                                                        <span className="ml-2 text-sm">{emp_data?.emp_station || 'N/A'}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
 
-                    {/* Group Table */}
-                    <table className="table table-zebra w-full">
-                        <thead>
-                            <tr>
-                                <th>Item Code</th>
-                                <th>Description</th>
-                                <th>Supplier</th>
-                                <th>Quantity</th>
-                                <th>UOM</th>
-                                <th>Request Quantity</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {group.items.map((item) => (
-                                <tr key={item.cartId}>
-                                    <td>{item.itemCode}</td>
-                                    <td>{item.description}</td>
-                                    <td>{item.supplier}</td>
-                                    <td>{item.quantity}</td>
-                                    <td>{item.uom}</td>
-                                    <td>
-                                        <input 
-                                            type="number" 
-                                            min="1"
-                                            max={item.quantity}
-                                            className="input input-bordered input-sm w-24"
-                                            value={item.requestQuantity}
-                                            onChange={(e) => {
-                                                const newQuantity = parseInt(e.target.value) || 1;
-                                                setCartItems(prev => 
-                                                    prev.map(cartItem => 
-                                                        cartItem.cartId === item.cartId 
-                                                            ? {...cartItem, requestQuantity: newQuantity}
-                                                            : cartItem
-                                                    )
-                                                );
-                                            }}
-                                        />
-                                    </td>
-                                    <td>
-                                        <button 
-                                            className="btn btn-sm btn-error"
-                                            onClick={() => {
-                                                setCartItems(prev => 
-                                                    prev.filter(cartItem => cartItem.cartId !== item.cartId)
-                                                );
-                                            }}
-                                        >
-                                            Remove
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            ))}
-        </div>
-    );
-})()}
+                                            {/* Group Table */}
+                                            <table className="table table-zebra w-full">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Item Code</th>
+                                                        <th>Description</th>
+                                                        <th>Supplier</th>
+                                                        <th>Quantity</th>
+                                                        <th>UOM</th>
+                                                        <th>Request Quantity</th>
+                                                        <th className="min-w-[200px]">Remarks</th>
+                                                        <th>Action</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {group.items.map((item) => (
+                                                        <tr key={item.cartId}>
+                                                            <td>{item.itemCode}</td>
+                                                            <td>{item.description}</td>
+                                                            <td>{item.supplier}</td>
+                                                            <td>{item.quantity}</td>
+                                                            <td>{item.uom}</td>
+                                                            <td>
+                                                                <input 
+                                                                    type="number" 
+                                                                    min="1"
+                                                                    max={item.quantity}
+                                                                    className="input input-bordered input-sm w-24"
+                                                                    value={item.requestQuantity}
+                                                                    onChange={(e) => {
+                                                                        const newQuantity = parseInt(e.target.value) || 1;
+                                                                        setCartItems(prev => 
+                                                                            prev.map(cartItem => 
+                                                                                cartItem.cartId === item.cartId 
+                                                                                    ? {...cartItem, requestQuantity: newQuantity}
+                                                                                    : cartItem
+                                                                            )
+                                                                        );
+                                                                    }}
+                                                                />
+                                                            </td>
+                                                            <td>
+                                                                <textarea
+                                                                    className="textarea textarea-bordered textarea-sm w-full min-w-[200px]"
+                                                                    placeholder="Add remarks (optional)..."
+                                                                    rows="2"
+                                                                    value={item.remarks || ''}
+                                                                    onChange={(e) => {
+                                                                        setCartItems(prev => 
+                                                                            prev.map(cartItem => 
+                                                                                cartItem.cartId === item.cartId 
+                                                                                    ? {...cartItem, remarks: e.target.value}
+                                                                                    : cartItem
+                                                                            )
+                                                                        );
+                                                                    }}
+                                                                />
+                                                            </td>
+                                                            <td>
+                                                                <button 
+                                                                    className="btn btn-sm btn-error"
+                                                                    onClick={() => {
+                                                                        setCartItems(prev => 
+                                                                            prev.filter(cartItem => cartItem.cartId !== item.cartId)
+                                                                        );
+                                                                    }}
+                                                                >
+                                                                    Remove
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    ))}
+                                </div>
+                            );
+                        })()}
                     </>
                 ) : (
                     <div className="text-center py-8 text-gray-500">

@@ -55,6 +55,7 @@ class SuppliesCart extends Model
         'uom',
         'request_qty',
         'issued_qty',
+        'remarks',
     ];
 
     /**

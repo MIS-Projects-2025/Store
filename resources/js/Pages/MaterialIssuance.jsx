@@ -30,6 +30,7 @@ export default function MaterialIssuance() {
     const [showReplaceModal, setShowReplaceModal] = useState(false);
     const [selectedItemForReplace, setSelectedItemForReplace] = useState(null);
     const [availableReplacements, setAvailableReplacements] = useState([]);
+    const [replacementQuantity, setReplacementQuantity] = useState(1);
 
     /* -------------------- DATA SELECTOR -------------------- */
     const baseData = useMemo(() => {
@@ -219,92 +220,113 @@ export default function MaterialIssuance() {
         });
     };
 
-    const handleReplaceItem = (item) => {
-        setSelectedItemForReplace(item);
-        
-        const routeName = activeMainTab === "consumable" 
-            ? 'material-issuance.get-replacement-items-consumable'
-            : activeMainTab === "supplies"
-            ? 'material-issuance.get-replacement-items-supplies'
-            : 'material-issuance.get-replacement-items-consigned';
+const handleReplaceItem = (item) => {
+    setSelectedItemForReplace(item);
+    setReplacementQuantity(1); // Initialize with 1
+    
+    const routeName = activeMainTab === "consumable" 
+        ? 'material-issuance.get-replacement-items-consumable'
+        : activeMainTab === "supplies"
+        ? 'material-issuance.get-replacement-items-supplies'
+        : 'material-issuance.get-replacement-items-consigned';
 
-        // Remove material_description parameter to get all items
-        router.get(route(routeName), {}, {
-            preserveScroll: true,
-            preserveState: true,
-            onSuccess: (page) => {
-                setAvailableReplacements(page.props.replacementItems || []);
-                setShowReplaceModal(true);
-            }
-        });
-    };
+    // Pass material_description to filter replacement items
+    const params = activeMainTab === "consigned" 
+        ? { material_description: item.material_description }
+        : {};
+
+    router.get(route(routeName), params, {
+        preserveScroll: true,
+        preserveState: true,
+        onSuccess: (page) => {
+            setAvailableReplacements(page.props.replacementItems || []);
+            setShowReplaceModal(true);
+        }
+    });
+};
 
     const closeReplaceModal = () => {
         setShowReplaceModal(false);
         setSelectedItemForReplace(null);
         setAvailableReplacements([]);
+        setReplacementQuantity(1); // Reset quantity
     };
 
-    const handleConfirmReplacement = (replacementItem) => {
-        if (!selectedItemForReplace || !selectedMRS) return;
+const handleConfirmReplacement = (replacementItem) => {
+    if (!selectedItemForReplace || !selectedMRS) return;
 
-        if (!confirm('Are you sure you want to replace this item?')) {
-            return;
-        }
+    // Validate quantity
+    const maxQty = selectedItemForReplace.issued_quantity ?? selectedItemForReplace.issued_qty ?? 0;
+    if (replacementQuantity > maxQty) {
+        alert(`Replacement quantity cannot exceed ${maxQty}`);
+        return;
+    }
 
-        setIsProcessing(true);
+    if (replacementQuantity < 1) {
+        alert('Replacement quantity must be at least 1');
+        return;
+    }
 
-        const routeName = activeMainTab === "consumable" 
-            ? 'material-issuance.replace-item-consumable'
-            : activeMainTab === "supplies"
-            ? 'material-issuance.replace-item-supplies'
-            : 'material-issuance.replace-item-consigned';
+    if (!confirm(`Replace ${replacementQuantity} unit(s) of this item?`)) {
+        return;
+    }
 
-        const payload = {
-            mrs_no: selectedMRS.mrs_no,
-            old_item_id: selectedItemForReplace.id,
-            new_item_code: replacementItem.item_code,
-        };
+    setIsProcessing(true);
 
-        // Add type-specific fields
-        if (activeMainTab === "consumable") {
-            payload.new_serial = replacementItem.serial;
-        } else if (activeMainTab === "consigned") {
-            payload.new_supplier = replacementItem.supplier;
-        }
+    const routeName = activeMainTab === "consumable" 
+        ? 'material-issuance.replace-item-consumable'
+        : activeMainTab === "supplies"
+        ? 'material-issuance.replace-item-supplies'
+        : 'material-issuance.replace-item-consigned';
 
-        router.post(route(routeName), payload, {
-            preserveScroll: true,
-            preserveState: false, // Changed to false to force data refresh
-            onSuccess: (page) => {
-                const updatedData = activeMainTab === "consumable" 
-                    ? page.props.consumables 
-                    : activeMainTab === "supplies"
-                    ? page.props.supplies
-                    : page.props.consigned;
+    const payload = {
+        mrs_no: selectedMRS.mrs_no,
+        old_item_id: selectedItemForReplace.id,
+        new_item_code: replacementItem.item_code,
+        replacement_qty: replacementQuantity,
+    };
+
+    // Add type-specific fields
+    if (activeMainTab === "consumable") {
+        payload.new_serial = replacementItem.serial;
+    } else if (activeMainTab === "consigned") {
+        payload.new_supplier = replacementItem.supplier;
+    }
+
+    router.post(route(routeName), payload, {
+        preserveScroll: true,
+        preserveState: true, // ✅ CHANGED: Keep the page state
+        only: [activeMainTab === "consumable" ? 'consumables' : activeMainTab === "supplies" ? 'supplies' : 'consigned'], // ✅ ADDED: Only reload specific data
+        onSuccess: (page) => {
+            // Get updated data from the response
+            const updatedData = activeMainTab === "consumable" 
+                ? page.props.consumables 
+                : activeMainTab === "supplies"
+                ? page.props.supplies
+                : page.props.consigned;
+            
+            // Find the updated MRS
+            const updatedMRS = updatedData.find(mrs => mrs.mrs_no === selectedMRS.mrs_no);
+            
+            if (updatedMRS) {
+                // ✅ Update the modal with fresh data
+                setSelectedMRS(updatedMRS);
                 
-                const updatedMRS = updatedData.find(mrs => mrs.mrs_no === selectedMRS.mrs_no);
-                
-                if (updatedMRS) {
-                    setSelectedMRS(updatedMRS);
-                    
-                    // Update issued quantities for the replaced item
-                    const updatedItem = updatedMRS.items.find(item => item.id === selectedItemForReplace.id);
-                    if (updatedItem) {
-                        setIssuedQuantities(prev => ({
-                            ...prev,
-                            [updatedItem.id]: updatedItem.issued_quantity ?? updatedItem.issued_qty ?? 1
-                        }));
-                    }
-                }
-                
-                closeReplaceModal();
-            },
-            onFinish: () => {
-                setIsProcessing(false);
+                // Update issued quantities state
+                const newQuantities = {};
+                updatedMRS.items.forEach(item => {
+                    newQuantities[item.id] = item.issued_quantity ?? item.issued_qty ?? 1;
+                });
+                setIssuedQuantities(newQuantities);
             }
-        });
-    };
+            
+            closeReplaceModal();
+        },
+        onFinish: () => {
+            setIsProcessing(false);
+        }
+    });
+};
 
     return (
         <AuthenticatedLayout>
@@ -498,6 +520,10 @@ export default function MaterialIssuance() {
                                         <th>Quantity</th>
                                         <th>Requested Qty</th>
                                         <th>Issued Qty</th>
+                                        {/* SHOW REMARKS COLUMN ONLY IN PREPARING AND FOR PICK UP */}
+                                        {(activeSubTab === "Preparing" || activeSubTab === "For Pick Up") && (
+                                            <th>Remarks</th>
+                                        )}
                                         {(activeSubTab === "For Pick Up" || activeSubTab === "Delivered") && (
                                             <th className="text-center">Action</th>
                                         )}
@@ -542,6 +568,14 @@ export default function MaterialIssuance() {
                                                     />
                                                 )}
                                             </td>
+                                            {/* DISPLAY REMARKS (READ-ONLY) */}
+                                            {(activeSubTab === "Preparing" || activeSubTab === "For Pick Up") && (
+                                                <td>
+                                                    <span className="text-sm">
+                                                        {item.remarks || '-'}
+                                                    </span>
+                                                </td>
+                                            )}
                                             {activeSubTab === "For Pick Up" && (
                                                 <td className="text-center">
                                                     <button 
@@ -599,141 +633,173 @@ export default function MaterialIssuance() {
                 </div>
             )}
 
-            {/* ================= REPLACE ITEM MODAL ================= */}
-            {showReplaceModal && selectedItemForReplace && (
-                <div className="modal modal-open">
-                    <div className="modal-box max-w-5xl">
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="font-bold text-lg">Replace Item</h3>
-                            <button 
-                                className="btn btn-sm btn-circle btn-ghost"
-                                onClick={closeReplaceModal}
-                            >
-                                <X className="w-5 h-5" />
-                            </button>
-                        </div>
+{/* ================= REPLACE ITEM MODAL ================= */}
+{showReplaceModal && selectedItemForReplace && (
+    <div className="modal modal-open">
+        <div className="modal-box max-w-5xl">
+            <div className="flex justify-between items-center mb-4">
+                <h3 className="font-bold text-lg">Replace Item</h3>
+                <button 
+                    className="btn btn-sm btn-circle btn-ghost"
+                    onClick={closeReplaceModal}
+                >
+                    <X className="w-5 h-5" />
+                </button>
+            </div>
 
-                        {/* Current Item Card */}
-                        <div className="card bg-base-200 mb-6">
-                            <div className="card-body">
-                                <h4 className="card-title text-base">Current Item</h4>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <p className="text-sm text-gray-500">Item Code</p>
-                                        <p className="font-semibold">{selectedItemForReplace.itemCode}</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-sm text-gray-500">Description</p>
-                                        <p className="font-semibold">{selectedItemForReplace.material_description}</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-sm text-gray-500">Detailed Description</p>
-                                        <p className="font-semibold">{selectedItemForReplace.detailed_description}</p>
-                                    </div>
-                                    {activeMainTab === "consumable" && (
-                                        <div>
-                                            <p className="text-sm text-gray-500">Serial</p>
-                                            <p className="font-semibold">{selectedItemForReplace.serial ?? "N/A"}</p>
-                                        </div>
-                                    )}
-                                    {activeMainTab === "consigned" && (
-                                        <div>
-                                            <p className="text-sm text-gray-500">Supplier</p>
-                                            <p className="font-semibold">{selectedItemForReplace.supplier ?? "N/A"}</p>
-                                        </div>
-                                    )}
-                                    <div>
-                                        <p className="text-sm text-gray-500">Issued Quantity</p>
-                                        <p className="font-semibold">
-                                            {selectedItemForReplace.issued_quantity ?? selectedItemForReplace.issued_qty}
-                                        </p>
-                                    </div>
-                                </div>
+            {/* Current Item Card */}
+            <div className="card bg-base-200 mb-6">
+                <div className="card-body">
+                    <h4 className="card-title text-base">Current Item</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <p className="text-sm text-gray-500">Item Code</p>
+                            <p className="font-semibold">{selectedItemForReplace.itemCode}</p>
+                        </div>
+                        <div>
+                            <p className="text-sm text-gray-500">Description</p>
+                            <p className="font-semibold">{selectedItemForReplace.material_description}</p>
+                        </div>
+                        <div>
+                            <p className="text-sm text-gray-500">Detailed Description</p>
+                            <p className="font-semibold">{selectedItemForReplace.detailed_description}</p>
+                        </div>
+                        {activeMainTab === "consumable" && (
+                            <div>
+                                <p className="text-sm text-gray-500">Serial</p>
+                                <p className="font-semibold">{selectedItemForReplace.serial ?? "N/A"}</p>
                             </div>
-                        </div>
-
-                        <div className="divider">Available Replacements</div>
-
-                        {/* Replacement Items Table */}
-                        <div className="overflow-x-auto">
-                            <table className="table table-sm table-zebra">
-                                <thead>
-                                    <tr>
-                                        <th>Item Code</th>
-                                        <th>Material Description</th>
-                                        <th>Detailed Description</th>
-                                        {activeMainTab === "consumable" && (
-                                            <>
-                                                <th>Serial</th>
-                                                <th>Bin Location</th>
-                                            </>
-                                        )}
-                                        {activeMainTab === "consigned" && (
-                                            <>
-                                                <th>Supplier</th>
-                                                <th>Expiration</th>
-                                                <th>Bin Location</th>
-                                            </>
-                                        )}
-                                        <th>Available Qty</th>
-                                        <th className="text-center">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {availableReplacements.length === 0 && (
-                                        <tr>
-                                            <td colSpan={
-                                                activeMainTab === "consumable" ? "7" : 
-                                                activeMainTab === "consigned" ? "8" : "5"
-                                            } className="text-center text-gray-400">
-                                                No replacement items available
-                                            </td>
-                                        </tr>
-                                    )}
-
-                                    {availableReplacements.map((replacement, idx) => (
-                                        <tr key={idx}>
-                                            <td>{replacement.item_code}</td>
-                                            <td>{replacement.material_description}</td>
-                                            <td>{replacement.detailed_description}</td>
-                                            {activeMainTab === "consumable" && (
-                                                <>
-                                                    <td>{replacement.serial ?? "N/A"}</td>
-                                                    <td>{replacement.bin_location ?? "N/A"}</td>
-                                                </>
-                                            )}
-                                            {activeMainTab === "consigned" && (
-                                                <>
-                                                    <td>{replacement.supplier ?? "N/A"}</td>
-                                                    <td>{replacement.expiration ?? "N/A"}</td>
-                                                    <td>{replacement.bin_location ?? "N/A"}</td>
-                                                </>
-                                            )}
-                                            <td>{replacement.quantity ?? replacement.qty}</td>
-                                            <td className="text-center">
-                                                <button 
-                                                    className="btn btn-xs btn-primary"
-                                                    onClick={() => handleConfirmReplacement(replacement)}
-                                                    disabled={isProcessing}
-                                                >
-                                                    Select
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <div className="modal-action">
-                            <button className="btn" onClick={closeReplaceModal}>
-                                Cancel
-                            </button>
+                        )}
+                        {activeMainTab === "consigned" && (
+                            <div>
+                                <p className="text-sm text-gray-500">Supplier</p>
+                                <p className="font-semibold">{selectedItemForReplace.supplier ?? "N/A"}</p>
+                            </div>
+                        )}
+                        <div>
+                            <p className="text-sm text-gray-500">Issued Quantity</p>
+                            <p className="font-semibold">
+                                {selectedItemForReplace.issued_quantity ?? selectedItemForReplace.issued_qty}
+                            </p>
                         </div>
                     </div>
-                    <div className="modal-backdrop" onClick={closeReplaceModal}></div>
+                    
+                    {/* ADD QUANTITY INPUT HERE */}
+                    <div className="divider"></div>
+                    <div className="form-control w-full max-w-xs">
+                        <label className="label">
+                            <span className="label-text font-semibold">Quantity to Replace</span>
+                        </label>
+                        <input 
+                            type="number" 
+                            className="input input-bordered w-full"
+                            min="1"
+                            max={selectedItemForReplace.issued_quantity ?? selectedItemForReplace.issued_qty}
+                            value={replacementQuantity}
+                            onChange={(e) => {
+                                const max = selectedItemForReplace.issued_quantity ?? selectedItemForReplace.issued_qty;
+                                let value = parseInt(e.target.value) || 1;
+                                if (value > max) value = max;
+                                if (value < 1) value = 1;
+                                setReplacementQuantity(value);
+                            }}
+                        />
+                        <label className="label">
+                            <span className="label-text-alt">
+                                Max: {selectedItemForReplace.issued_quantity ?? selectedItemForReplace.issued_qty}
+                            </span>
+                        </label>
+                    </div>
                 </div>
-            )}
+            </div>
+
+            <div className="divider">Available Replacements</div>
+
+            {/* Replacement Items Table */}
+            <div className="overflow-x-auto">
+                <table className="table table-sm table-zebra">
+                    <thead>
+                        <tr>
+                            <th>Item Code</th>
+                            <th>Material Description</th>
+                            <th>Detailed Description</th>
+                            {activeMainTab === "consumable" && (
+                                <>
+                                    <th>Serial</th>
+                                    <th>Bin Location</th>
+                                </>
+                            )}
+                            {activeMainTab === "consigned" && (
+                                <>
+                                    <th>Supplier</th>
+                                    <th>Expiration</th>
+                                    <th>Bin Location</th>
+                                </>
+                            )}
+                            <th>Available Qty</th>
+                            <th className="text-center">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {availableReplacements.length === 0 && (
+                            <tr>
+                                <td colSpan={
+                                    activeMainTab === "consumable" ? "7" : 
+                                    activeMainTab === "consigned" ? "8" : "5"
+                                } className="text-center text-gray-400">
+                                    No replacement items available
+                                </td>
+                            </tr>
+                        )}
+
+                        {availableReplacements.map((replacement, idx) => (
+                            <tr key={idx}>
+                                <td>{replacement.item_code}</td>
+                                <td>{replacement.material_description}</td>
+                                <td>{replacement.detailed_description}</td>
+                                {activeMainTab === "consumable" && (
+                                    <>
+                                        <td>{replacement.serial ?? "N/A"}</td>
+                                        <td>{replacement.bin_location ?? "N/A"}</td>
+                                    </>
+                                )}
+                                {activeMainTab === "consigned" && (
+                                    <>
+                                        <td>{replacement.supplier ?? "N/A"}</td>
+                                        <td>{replacement.expiration ?? "N/A"}</td>
+                                        <td>{replacement.bin_location ?? "N/A"}</td>
+                                    </>
+                                )}
+                                <td>{replacement.quantity ?? replacement.qty}</td>
+                                <td className="text-center">
+                                    <button 
+                                        className="btn btn-xs btn-primary"
+                                        onClick={() => handleConfirmReplacement(replacement)}
+                                        disabled={isProcessing || (replacement.quantity ?? replacement.qty) < replacementQuantity}
+                                        title={
+                                            (replacement.quantity ?? replacement.qty) < replacementQuantity 
+                                            ? `Insufficient stock. Available: ${replacement.quantity ?? replacement.qty}` 
+                                            : 'Select this item'
+                                        }
+                                    >
+                                        Select
+                                    </button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+
+            <div className="modal-action">
+                <button className="btn" onClick={closeReplaceModal}>
+                    Cancel
+                </button>
+            </div>
+        </div>
+        <div className="modal-backdrop" onClick={closeReplaceModal}></div>
+    </div>
+)}
         </AuthenticatedLayout>
     );
 }

@@ -1,7 +1,17 @@
 import Dropdown from "@/Components/sidebar/Dropdown";
 import SidebarLink from "@/Components/sidebar/SidebarLink";
 import { usePage } from "@inertiajs/react";
-import { HiSquares2X2, HiFolderOpen, HiCube, HiArchiveBox, HiClipboardDocumentList } from "react-icons/hi2";
+import { 
+  HiSquares2X2, 
+  HiFolderOpen, 
+  HiCube, 
+  HiArchiveBox, 
+  HiClipboardDocumentList,
+  HiDocumentArrowUp,
+  HiDocumentArrowDown,
+  HiShoppingCart,
+  HiCheckBadge
+} from "react-icons/hi2";
 
 export default function NavLinks() {
     const { emp_data } = usePage().props;
@@ -30,7 +40,7 @@ export default function NavLinks() {
             show: canView(['store']),
             href: route("material-issuance"),
             label: "Material Issuance",
-            icon: <HiSquares2X2 className="w-5 h-5" />
+            icon: <HiDocumentArrowUp className="w-5 h-5" />
         },
         {
             type: 'dropdown',
@@ -61,17 +71,24 @@ export default function NavLinks() {
         },
         {
             type: 'link',
-            show: canView(['employee', 'store', 'consigned']),
+            show: canView(['store']),
+            href: route("export"),
+            label: "Export",
+            icon: <HiDocumentArrowDown className="w-5 h-5" />
+        },
+        {
+            type: 'link',
+            show: canView(['employee', 'consigned']),
             href: route("order-material"),
             label: "Order Material",
-            icon: <HiSquares2X2 className="w-5 h-5" />
+            icon: <HiShoppingCart className="w-5 h-5" />
         },
         {
             type: 'link',
             show: canView(['employee']) && emp_data?.emp_position != 1,
             href: route("approval"),
             label: "Approval Request",
-            icon: <HiSquares2X2 className="w-5 h-5" />
+            icon: <HiCheckBadge className="w-5 h-5" />
         }
     ];
 

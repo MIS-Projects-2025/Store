@@ -57,6 +57,7 @@ class ConsumableCart extends Model
         'uom',
         'request_quantity',
         'issued_quantity',
+        'remarks',
     ];
 
     /**

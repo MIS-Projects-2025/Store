@@ -16,6 +16,7 @@ require __DIR__ . '/consumable.php';
 require __DIR__ . '/supplies.php';
 require __DIR__ . '/consigned.php';
 require __DIR__ . '/approval.php';
+require __DIR__ . '/export.php';
 
 
 Route::fallback(function () {

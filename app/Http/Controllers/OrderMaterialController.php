@@ -7,7 +7,7 @@ use App\Models\ConsumableCart;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
-
+use App\Models\User;
 class OrderMaterialController extends Controller
 {
 public function index()
@@ -38,7 +38,11 @@ public function index()
             })
         ];
     });
-
+    $empData = session('emp_data');
+   
+$department = $empData['emp_dept'];
+$approverList = User::getApproversByProdline($department);
+// dd($approverList);
     // Filter out consumables with no available details
     $consumables = $consumables->filter(function($consumable) {
         return $consumable['details']->isNotEmpty();
@@ -112,20 +116,20 @@ public function index()
     })->values();
 
     // Get employee data from session - MOVED HERE, BEFORE THE RETURN STATEMENT
-    $empData = session('emp_data');
+    // $empData = session('emp_data');
 
     return Inertia::render('OrderMaterial', [
         'consumables' => $consumables,
         'supplies' => $supplies,
         'consigned' => $consigned,
         'emp_data' => $empData, // Now this will work
+        'approverList'=>$approverList
     ]);
 }
 
 
 public function submitConsumableOrder(Request $request)
 {
-    // Validate the request
     $validated = $request->validate([
         'approver' => 'required|string',
         'items' => 'required|array|min:1',
@@ -137,20 +141,16 @@ public function submitConsumableOrder(Request $request)
         'items.*.quantity' => 'required|numeric',
         'items.*.uom' => 'required|string',
         'items.*.requestQuantity' => 'required|numeric|min:1',
+        'items.*.remarks' => 'nullable|string', // ADD THIS LINE
     ]);
 
     try {
         DB::beginTransaction();
 
-        // Generate MRS number (Material Requisition Slip number)
         $mrsNo = $this->generateMRSNumber();
-        
-        // Get employee data from session
         $empData = session('emp_data');
         
-        // Create cart entries for each item
         foreach ($validated['items'] as $item) {
-            // Fetch bin_location from ConsumableDetail using the id
             $consumableDetail = \App\Models\ConsumableDetail::find($item['id']);
             
             ConsumableCart::create([
@@ -173,11 +173,11 @@ public function submitConsumableOrder(Request $request)
                 'uom' => $item['uom'],
                 'request_quantity' => $item['requestQuantity'],
                 'issued_quantity' => 0,
+                'remarks' => $item['remarks'] ?? null, // ADD THIS LINE
             ]);
         }
 
         DB::commit();
-
         return redirect()->back()->with('success', "Order submitted successfully! MRS No: {$mrsNo}");
         
     } catch (\Exception $e) {
@@ -188,7 +188,6 @@ public function submitConsumableOrder(Request $request)
 
 public function submitSuppliesOrder(Request $request)
 {
-    // Validate the request
     $validated = $request->validate([
         'approver' => 'required|string',
         'items' => 'required|array|min:1',
@@ -199,18 +198,15 @@ public function submitSuppliesOrder(Request $request)
         'items.*.quantity' => 'required|numeric',
         'items.*.uom' => 'required|string',
         'items.*.requestQuantity' => 'required|numeric|min:1',
+        'items.*.remarks' => 'nullable|string', // ADD THIS LINE
     ]);
 
     try {
         DB::beginTransaction();
 
-        // Generate MRS number (Material Requisition Slip number)
         $mrsNo = $this->generateMRSNumber('supplies');
-        
-        // Get employee data from session
         $empData = session('emp_data');
         
-        // Create cart entries for each item
         foreach ($validated['items'] as $item) {
             \App\Models\SuppliesCart::create([
                 'mrs_no' => $mrsNo,
@@ -230,11 +226,11 @@ public function submitSuppliesOrder(Request $request)
                 'uom' => $item['uom'],
                 'request_qty' => $item['requestQuantity'],
                 'issued_qty' => 0,
+                'remarks' => $item['remarks'] ?? null, // ADD THIS LINE
             ]);
         }
 
         DB::commit();
-
         return redirect()->back()->with('success', "Supplies order submitted successfully! MRS No: {$mrsNo}");
         
     } catch (\Exception $e) {
@@ -245,7 +241,6 @@ public function submitSuppliesOrder(Request $request)
 
 public function submitConsignedOrder(Request $request)
 {
-    // Validate the request - now accepting multiple groups
     $validated = $request->validate([
         'groups' => 'required|array|min:1',
         'groups.*.employeeId' => 'required|string',
@@ -258,26 +253,21 @@ public function submitConsignedOrder(Request $request)
         'groups.*.items.*.quantity' => 'required|numeric',
         'groups.*.items.*.uom' => 'required|string',
         'groups.*.items.*.requestQuantity' => 'required|numeric|min:1',
+        'groups.*.items.*.remarks' => 'nullable|string', // ADD THIS LINE
     ]);
 
     try {
         DB::beginTransaction();
 
-        // Generate ONE MRS number for ALL groups
         $mrsNo = $this->generateMRSNumber('consigned');
-        
-        // Get employee data from session for station
         $empData = session('emp_data');
         
-        // Process each group
         foreach ($validated['groups'] as $group) {
-            // Create cart entries for each item in this group
             foreach ($group['items'] as $item) {
-                // Fetch additional details from ConsignedDetail using the id
                 $consignedDetail = \App\Models\ConsignedDetail::find($item['id']);
                 
                 \App\Models\ConsignedCart::create([
-                    'mrs_no' => $mrsNo, // SAME MRS number for all groups
+                    'mrs_no' => $mrsNo,
                     'order_date' => now(),
                     'employee_no' => $group['employeeId'],
                     'factory' => $group['factory'],
@@ -294,6 +284,7 @@ public function submitConsignedOrder(Request $request)
                     'qty_per_box' => $consignedDetail ? $consignedDetail->qty_per_box : null,
                     'request_qty' => $item['requestQuantity'],
                     'issued_qty' => 0,
+                    'remarks' => $item['remarks'] ?? null, // ADD THIS LINE
                 ]);
             }
         }
@@ -308,7 +299,6 @@ public function submitConsignedOrder(Request $request)
         return redirect()->back()->with('error', 'Failed to submit consigned order: ' . $e->getMessage());
     }
 }
-
 /**
  * Generate unique MRS number in different formats based on type
  * - Consumable: MRS24-0001

@@ -55,6 +55,7 @@ class ConsignedCart extends Model
         'qty_per_box',
         'request_qty',
         'issued_qty',
+        'remarks',
     ];
 
     /**

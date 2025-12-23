@@ -49,6 +49,7 @@ class MaterialIssuanceController extends Controller
                 'quantity',
                 'request_quantity',
                 'issued_quantity',
+                'remarks',
             ]);
 
         $consumables = $consumablesRaw->groupBy('mrs_no')->map(function ($group) {
@@ -72,6 +73,7 @@ class MaterialIssuanceController extends Controller
                         'request_quantity' => $item->request_quantity,
                         'issued_quantity' => $item->issued_quantity,
                         'mrs_status' => $item->mrs_status,
+                        'remarks' => $item->remarks,
                     ];
                 })->values()->toArray(),
             ];
@@ -103,6 +105,7 @@ class MaterialIssuanceController extends Controller
                 'quantity',
                 'request_qty',
                 'issued_qty',
+                'remarks',
             ]);
 
         $supplies = $suppliesRaw->groupBy('mrs_no')->map(function ($group) {
@@ -125,6 +128,7 @@ class MaterialIssuanceController extends Controller
                         'request_qty' => $item->request_qty,
                         'issued_qty' => $item->issued_qty,
                         'mrs_status' => $item->mrs_status,
+                        'remarks' => $item->remarks,
                     ];
                 })->values()->toArray(),
             ];
@@ -160,6 +164,7 @@ class MaterialIssuanceController extends Controller
                 'qty_per_box',
                 'request_qty',
                 'issued_qty',
+                'remarks',
             ]);
 
         $consigned = $consignedRaw->groupBy('mrs_no')->map(function ($group) {
@@ -187,6 +192,7 @@ class MaterialIssuanceController extends Controller
                         'request_qty' => $item->request_qty,
                         'issued_qty' => $item->issued_qty,
                         'mrs_status' => $item->mrs_status,
+                        'remarks' => $item->remarks,
                     ];
                 })->values()->toArray(),
             ];
@@ -330,6 +336,7 @@ public function replaceItemConsumable(Request $request)
         'old_item_id' => 'required|integer',
         'new_item_code' => 'required|string',
         'new_serial' => 'nullable|string',
+        'replacement_qty' => 'required|integer|min:1', // ✅ ADD THIS
     ]);
 
     DB::transaction(function () use ($request) {
@@ -337,25 +344,90 @@ public function replaceItemConsumable(Request $request)
             ->where('mrs_no', $request->mrs_no)
             ->first();
 
-        if ($cartItem) {
-            $newItem = ConsumableDetail::with('consumable:consumable_id,material_description')
-                ->where('item_code', $request->new_item_code)
-                ->where('serial', $request->new_serial)
-                ->first();
+        if (!$cartItem) {
+            throw new \Exception("Cart item not found");
+        }
 
-            if ($newItem) {
-                $cartItem->update([
-                    'itemCode' => $request->new_item_code,
-                    'serial' => $request->new_serial,
-                    'material_description' => $newItem->consumable->material_description ?? $cartItem->material_description,
-                    'detailed_description' => $newItem->detailed_description,
-                    'bin_location' => $newItem->bin_location,
-                ]);
-            }
+        // ✅ Validate replacement quantity
+        if ($request->replacement_qty > $cartItem->issued_quantity) {
+            throw new \Exception("Replacement quantity cannot exceed issued quantity");
+        }
+
+        // ✅ STEP 1: Return old item quantity back to inventory
+        $oldItem = ConsumableDetail::where('item_code', $cartItem->itemCode)
+            ->where('serial', $cartItem->serial)
+            ->first();
+
+        if ($oldItem) {
+            $oldItem->update([
+                'quantity' => $oldItem->quantity + $request->replacement_qty
+            ]);
+        }
+
+        // ✅ STEP 2: Get new item and deduct from inventory
+        $newItem = ConsumableDetail::with('consumable:consumable_id,material_description')
+            ->where('item_code', $request->new_item_code)
+            ->where('serial', $request->new_serial)
+            ->first();
+
+        if (!$newItem) {
+            throw new \Exception("Replacement item not found in inventory");
+        }
+
+        // ✅ Check if new item has enough stock
+        if ($newItem->quantity < $request->replacement_qty) {
+            throw new \Exception("Insufficient stock for replacement item. Available: {$newItem->quantity}");
+        }
+
+        // ✅ Deduct from new item inventory
+        $newItem->update([
+            'quantity' => $newItem->quantity - $request->replacement_qty
+        ]);
+
+        // ✅ STEP 3: Handle partial or full replacement in cart
+        if ($request->replacement_qty < $cartItem->issued_quantity) {
+            // Partial replacement - reduce original and create new entry
+            $cartItem->update([
+                'issued_quantity' => $cartItem->issued_quantity - $request->replacement_qty,
+                'request_quantity' => $cartItem->request_quantity - $request->replacement_qty,
+            ]);
+
+            // Create new cart entry for replaced item
+            ConsumableCart::create([
+                'mrs_no' => $cartItem->mrs_no,
+                'order_date' => $cartItem->order_date,
+                'emp_id' => $cartItem->emp_id,
+                'emp_name' => $cartItem->emp_name,
+                'approver' => $cartItem->approver,
+                'department' => $cartItem->department,
+                'prodline' => $cartItem->prodline,
+                'mrs_status' => $cartItem->mrs_status,
+                'approver_status' => $cartItem->approver_status,
+                'issued_by' => $cartItem->issued_by,
+                'itemCode' => $request->new_item_code,
+                'serial' => $request->new_serial,
+                'material_description' => $newItem->consumable->material_description ?? $cartItem->material_description,
+                'detailed_description' => $newItem->detailed_description,
+                'bin_location' => $newItem->bin_location,
+                'quantity' => $newItem->quantity,
+                'uom' => $cartItem->uom,
+                'request_quantity' => $request->replacement_qty,
+                'issued_quantity' => $request->replacement_qty,
+                'remarks' => $cartItem->remarks,
+            ]);
+        } else {
+            // Full replacement - update existing cart item
+            $cartItem->update([
+                'itemCode' => $request->new_item_code,
+                'serial' => $request->new_serial,
+                'material_description' => $newItem->consumable->material_description ?? $cartItem->material_description,
+                'detailed_description' => $newItem->detailed_description,
+                'bin_location' => $newItem->bin_location,
+            ]);
         }
     });
 
-    return back()->with('success', 'Item replaced successfully');
+    return $this->getUpdatedData('consumable');
 }
 
     // ==================== SUPPLIES METHODS ====================
@@ -486,6 +558,7 @@ public function replaceItemSupplies(Request $request)
         'mrs_no' => 'required|string',
         'old_item_id' => 'required|integer',
         'new_item_code' => 'required|string',
+        'replacement_qty' => 'required|integer|min:1', // ✅ ADD THIS
     ]);
 
     DB::transaction(function () use ($request) {
@@ -493,22 +566,86 @@ public function replaceItemSupplies(Request $request)
             ->where('mrs_no', $request->mrs_no)
             ->first();
 
-        if ($cartItem) {
-            $newItem = SupplyDetail::with('supply:supplies_no,material_description')
-                ->where('item_code', $request->new_item_code)
-                ->first();
+        if (!$cartItem) {
+            throw new \Exception("Cart item not found");
+        }
 
-            if ($newItem) {
-                $cartItem->update([
-                    'itemCode' => $request->new_item_code,
-                    'material_description' => $newItem->supply->material_description ?? $cartItem->material_description,
-                    'detailed_description' => $newItem->detailed_description,
-                ]);
-            }
+        // ✅ Validate replacement quantity
+        if ($request->replacement_qty > $cartItem->issued_qty) {
+            throw new \Exception("Replacement quantity cannot exceed issued quantity");
+        }
+
+        // ✅ STEP 1: Return old item quantity back to inventory
+        $oldItem = SupplyDetail::where('item_code', $cartItem->itemCode)
+            ->active()
+            ->first();
+
+        if ($oldItem) {
+            $oldItem->update([
+                'qty' => $oldItem->qty + $request->replacement_qty
+            ]);
+        }
+
+        // ✅ STEP 2: Get new item and deduct from inventory
+        $newItem = SupplyDetail::with('supply:supplies_no,material_description')
+            ->where('item_code', $request->new_item_code)
+            ->active()
+            ->first();
+
+        if (!$newItem) {
+            throw new \Exception("Replacement item not found in inventory");
+        }
+
+        // ✅ Check if new item has enough stock
+        if ($newItem->qty < $request->replacement_qty) {
+            throw new \Exception("Insufficient stock for replacement item. Available: {$newItem->qty}");
+        }
+
+        // ✅ Deduct from new item inventory
+        $newItem->update([
+            'qty' => $newItem->qty - $request->replacement_qty
+        ]);
+
+        // ✅ STEP 3: Handle partial or full replacement in cart
+        if ($request->replacement_qty < $cartItem->issued_qty) {
+            // Partial replacement
+            $cartItem->update([
+                'issued_qty' => $cartItem->issued_qty - $request->replacement_qty,
+                'request_qty' => $cartItem->request_qty - $request->replacement_qty,
+            ]);
+
+            // Create new cart entry
+            SuppliesCart::create([
+                'mrs_no' => $cartItem->mrs_no,
+                'order_date' => $cartItem->order_date,
+                'emp_id' => $cartItem->emp_id,
+                'emp_name' => $cartItem->emp_name,
+                'approver' => $cartItem->approver,
+                'department' => $cartItem->department,
+                'prodline' => $cartItem->prodline,
+                'mrs_status' => $cartItem->mrs_status,
+                'approver_status' => $cartItem->approver_status,
+                'issued_by' => $cartItem->issued_by,
+                'itemCode' => $request->new_item_code,
+                'material_description' => $newItem->supply->material_description ?? $cartItem->material_description,
+                'detailed_description' => $newItem->detailed_description,
+                'quantity' => $newItem->qty,
+                'uom' => $cartItem->uom,
+                'request_qty' => $request->replacement_qty,
+                'issued_qty' => $request->replacement_qty,
+                'remarks' => $cartItem->remarks,
+            ]);
+        } else {
+            // Full replacement
+            $cartItem->update([
+                'itemCode' => $request->new_item_code,
+                'material_description' => $newItem->supply->material_description ?? $cartItem->material_description,
+                'detailed_description' => $newItem->detailed_description,
+            ]);
         }
     });
 
-    return back()->with('success', 'Item replaced successfully');
+    return $this->getUpdatedData('supplies');
 }
 
     // ==================== CONSIGNED METHODS ====================
@@ -612,62 +749,323 @@ public function replaceItemSupplies(Request $request)
         return back()->with('success', 'Item returned successfully and inventory updated');
     }
 
-    public function getReplacementItemsConsigned(Request $request)
-    {
-        $request->validate(['material_description' => 'required|string']);
+public function getReplacementItemsConsigned(Request $request)
+{
+    $request->validate([
+        'material_description' => 'required|string'
+    ]);
 
-        $consigned = Consigned::where('mat_description', $request->material_description)->first();
-        if (!$consigned) return $this->returnWithAllData([]);
-
-        $replacementItems = ConsignedDetail::where('consigned_no', $consigned->consigned_no)
-            ->where('qty', '>', 0)
-            ->get(['id', 'item_code', 'supplier', 'expiration', 'bin_location', 'qty', 'uom', 'qty_per_box']);
-
-        return $this->returnWithAllData($replacementItems);
+    // Find the consigned item by material description
+    $consigned = Consigned::where('mat_description', $request->material_description)->first();
+    
+    if (!$consigned) {
+        return $this->returnWithAllData([]);
     }
 
-    public function replaceItemConsigned(Request $request)
-    {
-        $request->validate([
-            'mrs_no' => 'required|string',
-            'old_item_id' => 'required|integer',
-            'new_item_code' => 'required|string',
-            'new_supplier' => 'nullable|string',
-        ]);
-
-        DB::transaction(function () use ($request) {
-            $cartItem = ConsignedCart::where('id', $request->old_item_id)
-                ->where('mrs_no', $request->mrs_no)
-                ->first();
-
-            if ($cartItem) {
-                $newItem = ConsignedDetail::where('item_code', $request->new_item_code)
-                    ->where('supplier', $request->new_supplier)
-                    ->first();
-
-                if ($newItem) {
-                    $cartItem->update([
-                        'item_code' => $request->new_item_code,
-                        'supplier' => $request->new_supplier,
-                        'expiration' => $newItem->expiration,
-                        'bin_location' => $newItem->bin_location,
-                        'uom' => $newItem->uom,
-                        'qty_per_box' => $newItem->qty_per_box,
-                    ]);
-                }
-            }
+    // Get all consigned details with the same material description and qty > 0
+    $replacementItems = ConsignedDetail::where('consigned_no', $consigned->consigned_no)
+        ->where('qty', '>', 0)
+        ->get()
+        ->map(function($item) use ($consigned) {
+            return [
+                'id' => $item->id,
+                'item_code' => $item->item_code,
+                'material_description' => $consigned->mat_description,
+                'detailed_description' => $consigned->mat_description,
+                'supplier' => $item->supplier,
+                'expiration' => $item->expiration,
+                'bin_location' => $item->bin_location,
+                'quantity' => $item->qty,
+                'qty' => $item->qty,
+                'uom' => $item->uom,
+                'qty_per_box' => $item->qty_per_box
+            ];
         });
 
-        return back()->with('success', 'Item replaced successfully');
-    }
+    return $this->returnWithAllData($replacementItems);
+}
+
+public function replaceItemConsigned(Request $request)
+{
+    $request->validate([
+        'mrs_no' => 'required|string',
+        'old_item_id' => 'required|integer',
+        'new_item_code' => 'required|string',
+        'new_supplier' => 'nullable|string',
+        'replacement_qty' => 'required|integer|min:1',
+    ]);
+
+    DB::transaction(function () use ($request) {
+        $cartItem = ConsignedCart::where('id', $request->old_item_id)
+            ->where('mrs_no', $request->mrs_no)
+            ->first();
+
+        if (!$cartItem) {
+            throw new \Exception("Cart item not found");
+        }
+
+        // Validate replacement quantity doesn't exceed issued quantity
+        if ($request->replacement_qty > $cartItem->issued_qty) {
+            throw new \Exception("Replacement quantity cannot exceed issued quantity");
+        }
+
+        // ✅ STEP 1: Return old item quantity back to inventory
+        $oldItem = ConsignedDetail::where('item_code', $cartItem->item_code)
+            ->where('supplier', $cartItem->supplier)
+            ->first();
+
+        if ($oldItem) {
+            $oldItem->update([
+                'qty' => $oldItem->qty + $request->replacement_qty
+            ]);
+        }
+
+        // ✅ STEP 2: Get new item and check/deduct inventory
+        $newItem = ConsignedDetail::where('item_code', $request->new_item_code)
+            ->where('supplier', $request->new_supplier)
+            ->first();
+
+        if (!$newItem) {
+            throw new \Exception("Replacement item not found in inventory");
+        }
+
+        // Check if replacement item has enough stock
+        if ($newItem->qty < $request->replacement_qty) {
+            throw new \Exception("Insufficient stock for replacement item. Available: {$newItem->qty}");
+        }
+
+        // ✅ Deduct from new item inventory
+        $newItem->update([
+            'qty' => $newItem->qty - $request->replacement_qty
+        ]);
+
+        // ✅ STEP 3: Handle partial or full replacement
+        if ($request->replacement_qty < $cartItem->issued_qty) {
+            // Reduce the original item's quantity
+            $cartItem->update([
+                'issued_qty' => $cartItem->issued_qty - $request->replacement_qty,
+                'request_qty' => $cartItem->request_qty - $request->replacement_qty,
+            ]);
+
+            // Create new cart item with replacement details
+            ConsignedCart::create([
+                'mrs_no' => $cartItem->mrs_no,
+                'order_date' => $cartItem->order_date,
+                'employee_no' => $cartItem->employee_no,
+                'station' => $cartItem->station,
+                'factory' => $cartItem->factory,
+                'mrs_status' => $cartItem->mrs_status,
+                'issued_by' => $cartItem->issued_by,
+                'item_code' => $request->new_item_code,
+                'material_description' => $newItem->material_description ?? $cartItem->material_description,
+                'supplier' => $request->new_supplier,
+                'expiration' => $newItem->expiration,
+                'bin_location' => $newItem->bin_location,
+                'quantity' => $newItem->qty,
+                'uom' => $newItem->uom,
+                'qty_per_box' => $newItem->qty_per_box,
+                'request_qty' => $request->replacement_qty,
+                'issued_qty' => $request->replacement_qty,
+                'remarks' => $cartItem->remarks,
+            ]);
+        } else {
+            // Full replacement - update the existing item
+            $cartItem->update([
+                'item_code' => $request->new_item_code,
+                'supplier' => $request->new_supplier,
+                'expiration' => $newItem->expiration,
+                'bin_location' => $newItem->bin_location,
+                'uom' => $newItem->uom,
+                'qty_per_box' => $newItem->qty_per_box,
+                'material_description' => $newItem->material_description ?? $cartItem->material_description,
+            ]);
+        }
+    });
+
+    return $this->getUpdatedData('consigned');
+}
 
     // ==================== HELPER METHOD ====================
 
-    private function returnWithAllData($replacementItems)
-    {
-        $currentUser = session('emp_data.emp_name', null);
+private function returnWithAllData($replacementItems)
+{
+    $currentUser = session('emp_data.emp_name', null);
 
-        // Fetch all data again
+    // Fetch all data again - ADD 'remarks' to all queries
+    $consumablesRaw = ConsumableCart::where('approver_status', 'approved')
+        ->where(function($query) use ($currentUser) {
+            $query->where('mrs_status', 'Pending')
+                ->orWhere(function($q) use ($currentUser) {
+                    $q->whereIn('mrs_status', ['Preparing', 'For Pick Up', 'Delivered'])
+                      ->where('issued_by', $currentUser);
+                })
+                ->orWhere('mrs_status', 'Return');
+        })
+        ->orderBy('order_date', 'desc')
+        ->get(['id', 'mrs_no', 'order_date', 'emp_name', 'mrs_status', 'itemCode', 
+               'material_description', 'detailed_description', 'serial', 'quantity', 
+               'request_quantity', 'issued_quantity', 'remarks']); // ✅ ADDED 'remarks'
+
+    $consumables = $consumablesRaw->groupBy('mrs_no')->map(function ($group) {
+        $first = $group->first();
+        $displayStatus = $group->firstWhere('mrs_status', '!=', 'Return')?->mrs_status ?? $first->mrs_status;
+        return [
+            'id' => $first->id,
+            'mrs_no' => $first->mrs_no,
+            'order_date' => Carbon::parse($first->order_date)->format('Y-m-d'),
+            'emp_name' => $first->emp_name,
+            'mrs_status' => $displayStatus,
+            'items' => $group->map(fn($item) => [
+                'id' => $item->id,
+                'itemCode' => $item->itemCode,
+                'material_description' => $item->material_description,
+                'detailed_description' => $item->detailed_description,
+                'serial' => $item->serial,
+                'quantity' => $item->quantity,
+                'request_quantity' => $item->request_quantity,
+                'issued_quantity' => $item->issued_quantity,
+                'mrs_status' => $item->mrs_status,
+                'remarks' => $item->remarks, // ✅ ADDED
+            ])->values()->toArray(),
+        ];
+    })->values();
+
+    $suppliesRaw = SuppliesCart::where('approver_status', 'approved')
+        ->where(function($query) use ($currentUser) {
+            $query->where('mrs_status', 'Pending')
+                ->orWhere(function($q) use ($currentUser) {
+                    $q->whereIn('mrs_status', ['Preparing', 'For Pick Up', 'Delivered'])
+                      ->where('issued_by', $currentUser);
+                })
+                ->orWhere('mrs_status', 'Return');
+        })
+        ->orderBy('order_date', 'desc')
+        ->get(['id', 'mrs_no', 'order_date', 'emp_name', 'mrs_status', 'itemCode', 
+               'material_description', 'detailed_description', 'quantity', 
+               'request_qty', 'issued_qty', 'remarks']); // ✅ ADDED 'remarks'
+
+    $supplies = $suppliesRaw->groupBy('mrs_no')->map(function ($group) {
+        $first = $group->first();
+        $displayStatus = $group->firstWhere('mrs_status', '!=', 'Return')?->mrs_status ?? $first->mrs_status;
+        return [
+            'id' => $first->id,
+            'mrs_no' => $first->mrs_no,
+            'order_date' => Carbon::parse($first->order_date)->format('Y-m-d'),
+            'emp_name' => $first->emp_name,
+            'mrs_status' => $displayStatus,
+            'items' => $group->map(fn($item) => [
+                'id' => $item->id,
+                'itemCode' => $item->itemCode,
+                'material_description' => $item->material_description,
+                'detailed_description' => $item->detailed_description,
+                'quantity' => $item->quantity,
+                'request_qty' => $item->request_qty,
+                'issued_qty' => $item->issued_qty,
+                'mrs_status' => $item->mrs_status,
+                'remarks' => $item->remarks, // ✅ ADDED
+            ])->values()->toArray(),
+        ];
+    })->values();
+
+    // UPDATED: Use station instead of employee_no
+    $consignedRaw = ConsignedCart::whereNotNull('mrs_status')
+        ->where(function($query) use ($currentUser) {
+            $query->where('mrs_status', 'Pending')
+                ->orWhere(function($q) use ($currentUser) {
+                    $q->whereIn('mrs_status', ['Preparing', 'For Pick Up', 'Delivered'])
+                      ->where('issued_by', $currentUser);
+                })
+                ->orWhere('mrs_status', 'Return');
+        })
+        ->orderBy('order_date', 'desc')
+        ->get(['id', 'mrs_no', 'order_date', 'station', 'mrs_status', 'item_code', 
+               'material_description', 'supplier', 'expiration', 'bin_location', 
+               'quantity', 'uom', 'qty_per_box', 'request_qty', 'issued_qty', 'remarks']); // ✅ ADDED 'remarks'
+
+    $consigned = $consignedRaw->groupBy('mrs_no')->map(function ($group) {
+        $first = $group->first();
+        $displayStatus = $group->firstWhere('mrs_status', '!=', 'Return')?->mrs_status ?? $first->mrs_status;
+        return [
+            'id' => $first->id,
+            'mrs_no' => $first->mrs_no,
+            'order_date' => Carbon::parse($first->order_date)->format('Y-m-d'),
+            'emp_name' => $first->station, // Using station
+            'mrs_status' => $displayStatus,
+            'items' => $group->map(fn($item) => [
+                'id' => $item->id,
+                'itemCode' => $item->item_code,
+                'material_description' => $item->material_description,
+                'detailed_description' => $item->material_description,
+                'supplier' => $item->supplier,
+                'expiration' => $item->expiration,
+                'bin_location' => $item->bin_location,
+                'quantity' => $item->quantity,
+                'uom' => $item->uom,
+                'qty_per_box' => $item->qty_per_box,
+                'request_qty' => $item->request_qty,
+                'issued_qty' => $item->issued_qty,
+                'mrs_status' => $item->mrs_status,
+                'remarks' => $item->remarks, // ✅ ADDED
+            ])->values()->toArray(),
+        ];
+    })->values();
+
+    return Inertia::render('MaterialIssuance', [
+        'consumables' => $consumables,
+        'supplies' => $supplies,
+        'consigned' => $consigned,
+        'replacementItems' => $replacementItems,
+    ]);
+}
+    // ==================== REMARKS UPDATE METHODS ====================
+
+public function updateConsumableRemarks(Request $request)
+{
+    $request->validate([
+        'item_id' => 'required|integer',
+        'remarks' => 'nullable|string|max:500',
+    ]);
+
+    $cartItem = ConsumableCart::findOrFail($request->item_id);
+    $cartItem->update(['remarks' => $request->remarks]);
+
+    return back()->with('success', 'Remarks updated successfully');
+}
+
+public function updateSuppliesRemarks(Request $request)
+{
+    $request->validate([
+        'item_id' => 'required|integer',
+        'remarks' => 'nullable|string|max:500',
+    ]);
+
+    $cartItem = SuppliesCart::findOrFail($request->item_id);
+    $cartItem->update(['remarks' => $request->remarks]);
+
+    return back()->with('success', 'Remarks updated successfully');
+}
+
+public function updateConsignedRemarks(Request $request)
+{
+    $request->validate([
+        'item_id' => 'required|integer',
+        'remarks' => 'nullable|string|max:500',
+    ]);
+
+    $cartItem = ConsignedCart::findOrFail($request->item_id);
+    $cartItem->update(['remarks' => $request->remarks]);
+
+    return back()->with('success', 'Remarks updated successfully');
+}
+
+/**
+ * Get updated data for a specific type (consumable, supplies, or consigned)
+ */
+private function getUpdatedData($type)
+{
+    $currentUser = session('emp_data.emp_name', null);
+
+    if ($type === 'consumable') {
         $consumablesRaw = ConsumableCart::where('approver_status', 'approved')
             ->where(function($query) use ($currentUser) {
                 $query->where('mrs_status', 'Pending')
@@ -678,7 +1076,9 @@ public function replaceItemSupplies(Request $request)
                     ->orWhere('mrs_status', 'Return');
             })
             ->orderBy('order_date', 'desc')
-            ->get(['id', 'mrs_no', 'order_date', 'emp_name', 'mrs_status', 'itemCode', 'material_description', 'detailed_description', 'serial', 'quantity', 'request_quantity', 'issued_quantity']);
+            ->get(['id', 'mrs_no', 'order_date', 'emp_name', 'mrs_status', 'itemCode', 
+                   'material_description', 'detailed_description', 'serial', 'quantity', 
+                   'request_quantity', 'issued_quantity', 'remarks']);
 
         $consumables = $consumablesRaw->groupBy('mrs_no')->map(function ($group) {
             $first = $group->first();
@@ -699,10 +1099,15 @@ public function replaceItemSupplies(Request $request)
                     'request_quantity' => $item->request_quantity,
                     'issued_quantity' => $item->issued_quantity,
                     'mrs_status' => $item->mrs_status,
+                    'remarks' => $item->remarks,
                 ])->values()->toArray(),
             ];
         })->values();
 
+        return back()->with(['consumables' => $consumables, 'success' => 'Item replaced successfully']);
+    }
+
+    if ($type === 'supplies') {
         $suppliesRaw = SuppliesCart::where('approver_status', 'approved')
             ->where(function($query) use ($currentUser) {
                 $query->where('mrs_status', 'Pending')
@@ -713,7 +1118,9 @@ public function replaceItemSupplies(Request $request)
                     ->orWhere('mrs_status', 'Return');
             })
             ->orderBy('order_date', 'desc')
-            ->get(['id', 'mrs_no', 'order_date', 'emp_name', 'mrs_status', 'itemCode', 'material_description', 'detailed_description', 'quantity', 'request_qty', 'issued_qty']);
+            ->get(['id', 'mrs_no', 'order_date', 'emp_name', 'mrs_status', 'itemCode', 
+                   'material_description', 'detailed_description', 'quantity', 
+                   'request_qty', 'issued_qty', 'remarks']);
 
         $supplies = $suppliesRaw->groupBy('mrs_no')->map(function ($group) {
             $first = $group->first();
@@ -733,11 +1140,15 @@ public function replaceItemSupplies(Request $request)
                     'request_qty' => $item->request_qty,
                     'issued_qty' => $item->issued_qty,
                     'mrs_status' => $item->mrs_status,
+                    'remarks' => $item->remarks,
                 ])->values()->toArray(),
             ];
         })->values();
 
-        // UPDATED: Use station instead of employee_no
+        return back()->with(['supplies' => $supplies, 'success' => 'Item replaced successfully']);
+    }
+
+    if ($type === 'consigned') {
         $consignedRaw = ConsignedCart::whereNotNull('mrs_status')
             ->where(function($query) use ($currentUser) {
                 $query->where('mrs_status', 'Pending')
@@ -748,7 +1159,9 @@ public function replaceItemSupplies(Request $request)
                     ->orWhere('mrs_status', 'Return');
             })
             ->orderBy('order_date', 'desc')
-            ->get(['id', 'mrs_no', 'order_date', 'station', 'mrs_status', 'item_code', 'material_description', 'supplier', 'expiration', 'bin_location', 'quantity', 'uom', 'qty_per_box', 'request_qty', 'issued_qty']);
+            ->get(['id', 'mrs_no', 'order_date', 'station', 'mrs_status', 'item_code', 
+                   'material_description', 'supplier', 'expiration', 'bin_location', 
+                   'quantity', 'uom', 'qty_per_box', 'request_qty', 'issued_qty', 'remarks']);
 
         $consigned = $consignedRaw->groupBy('mrs_no')->map(function ($group) {
             $first = $group->first();
@@ -757,7 +1170,7 @@ public function replaceItemSupplies(Request $request)
                 'id' => $first->id,
                 'mrs_no' => $first->mrs_no,
                 'order_date' => Carbon::parse($first->order_date)->format('Y-m-d'),
-                'emp_name' => $first->station, // Using station
+                'emp_name' => $first->station,
                 'mrs_status' => $displayStatus,
                 'items' => $group->map(fn($item) => [
                     'id' => $item->id,
@@ -773,15 +1186,12 @@ public function replaceItemSupplies(Request $request)
                     'request_qty' => $item->request_qty,
                     'issued_qty' => $item->issued_qty,
                     'mrs_status' => $item->mrs_status,
+                    'remarks' => $item->remarks,
                 ])->values()->toArray(),
             ];
         })->values();
 
-        return Inertia::render('MaterialIssuance', [
-            'consumables' => $consumables,
-            'supplies' => $supplies,
-            'consigned' => $consigned,
-            'replacementItems' => $replacementItems,
-        ]);
+        return back()->with(['consigned' => $consigned, 'success' => 'Item replaced successfully']);
     }
+}
 }
