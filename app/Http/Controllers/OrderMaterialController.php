@@ -8,6 +8,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use App\Models\User;
+use App\Events\MaterialIssuanceUpdated;
+
 class OrderMaterialController extends Controller
 {
 public function index()
@@ -178,6 +180,19 @@ public function submitConsumableOrder(Request $request)
         }
 
         DB::commit();
+
+                   broadcast(new MaterialIssuanceUpdated(
+                'consumable',
+                'created',
+                $mrsNo,
+                'pending',
+                [
+                    'approver' => $validated['approver'],
+                    'item_count' => count($validated['items']),
+                    'requestor' => $empData['emp_name'] ?? null,
+                ]
+            ));
+
         return redirect()->back()->with('success', "Order submitted successfully! MRS No: {$mrsNo}");
         
     } catch (\Exception $e) {
@@ -231,6 +246,19 @@ public function submitSuppliesOrder(Request $request)
         }
 
         DB::commit();
+
+                    broadcast(new MaterialIssuanceUpdated(
+                'supplies',
+                'created',
+                $mrsNo,
+                'pending',
+                [
+                    'approver' => $validated['approver'],
+                    'item_count' => count($validated['items']),
+                    'requestor' => $empData['emp_name'] ?? null,
+                ]
+            ));
+
         return redirect()->back()->with('success', "Supplies order submitted successfully! MRS No: {$mrsNo}");
         
     } catch (\Exception $e) {
@@ -290,6 +318,18 @@ public function submitConsignedOrder(Request $request)
         }
 
         DB::commit();
+
+        $groupCount = count($validated['groups']);
+            broadcast(new MaterialIssuanceUpdated(
+                'consigned',
+                'created',
+                $mrsNo,
+                'pending',
+                [
+                    'group_count' => $groupCount,
+                    'station' => $empData['emp_station'] ?? null,
+                ]
+            ));
 
         $groupCount = count($validated['groups']);
         return redirect()->back()->with('success', "Consigned order submitted successfully! {$groupCount} group(s) with MRS No: {$mrsNo}");

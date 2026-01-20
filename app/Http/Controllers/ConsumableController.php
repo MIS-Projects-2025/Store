@@ -9,6 +9,8 @@ use App\Models\Consumable;
 use App\Models\ConsumableDetail;
 use App\Models\ConsumableHistory;
 use App\Models\ConsumableDetailHistory;
+use App\Imports\ConsumableImport;
+use Maatwebsite\Excel\Facades\Excel;
 
 class ConsumableController extends Controller
 {
@@ -18,6 +20,7 @@ class ConsumableController extends Controller
         $perPage = $request->input('per_page', 10);
 
         $query = Consumable::query()
+            ->with('details')
             ->select(
                 'consumable_id',
                 'material_description',
@@ -27,9 +30,20 @@ class ConsumableController extends Controller
 
         if (!empty($search)) {
             $query->where(function($q) use ($search) {
+                // Search in consumable fields
                 $q->where('material_description', 'LIKE', "%{$search}%")
-                  ->orWhere('category', 'LIKE', "%{$search}%")
-                  ->orWhere('uom', 'LIKE', "%{$search}%");
+                ->orWhere('category', 'LIKE', "%{$search}%")
+                ->orWhere('uom', 'LIKE', "%{$search}%")
+                // Search in related consumable_details fields
+                ->orWhereHas('details', function($detailQuery) use ($search) {
+                    $detailQuery->where('item_code', 'LIKE', "%{$search}%")
+                                ->orWhere('detailed_description', 'LIKE', "%{$search}%")
+                                ->orWhere('serial', 'LIKE', "%{$search}%")
+                                ->orWhere('bin_location', 'LIKE', "%{$search}%")
+                                ->orWhere('quantity', 'LIKE', "%{$search}%")
+                                ->orWhere('max', 'LIKE', "%{$search}%")
+                                ->orWhere('min', 'LIKE', "%{$search}%");
+                });
             });
         }
 
@@ -383,5 +397,31 @@ public function destroyDetail($id)
             'detail' => $detail,
             'history' => $history
         ]);
+    }
+
+    public function import(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|mimes:xlsx,xls,csv|max:5120', // 5MB max
+        ]);
+
+        try {
+            Excel::import(new ConsumableImport, $request->file('file'));
+            
+            return redirect()->back()->with('success', 'File imported successfully!');
+            
+        } catch (\Maatwebsite\Excel\Validators\ValidationException $e) {
+            $failures = $e->failures();
+            $errors = [];
+            
+            foreach ($failures as $failure) {
+                $errors[] = "Row {$failure->row()}: " . implode(', ', $failure->errors());
+            }
+            
+            return redirect()->back()->with('error', 'Import failed: ' . implode("\n", $errors));
+            
+        } catch (\Exception $e) {
+            return redirect()->back()->with('error', 'Import failed: ' . $e->getMessage());
+        }
     }
 }

@@ -659,13 +659,13 @@ const addToCart = (item, type) => {
                 <table className="table table-zebra">
                     <thead>
                         <tr>
-                            <th>Description</th>
+                            <th>Action</th>
                             <th className="min-w-[200px]">Item Code</th>
+                            <th>Description</th>
                             <th className="min-w-[250px]">Detailed Description</th>
                             <th className="min-w-[150px]">Serial</th>
                             <th>Quantity</th>
                             <th>UOM</th>
-                            <th>Action</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -674,7 +674,28 @@ const addToCart = (item, type) => {
                                 const selectedVariant = getSelectedConsumableVariant(consumable);
                                 return (
                                     <tr key={index}>
-                                        <td>{consumable.description}</td>
+                                        <td>
+                                            <button 
+                                                className="btn btn-sm btn-primary"
+                                                disabled={!selectedApprover}
+                                                onClick={() => {
+                                                    const selectedVariant = getSelectedConsumableVariant(consumable);
+                                                    addToCart({
+                                                        id: selectedVariant.id,
+                                                        itemCode: selectedVariant.itemCode,
+                                                        description: consumable.description,
+                                                        detailedDescription: selectedVariant.detailedDescription,
+                                                        serial: selectedVariant.serial,
+                                                        quantity: selectedVariant.quantity,
+                                                        uom: selectedVariant.uom
+                                                    }, 'consumable');
+                                                }}
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                                                </svg>
+                                            </button>
+                                        </td>
                                         <td className="min-w-[200px]">
                                             {consumable.variants.length > 1 ? (
                                                 <select 
@@ -695,6 +716,7 @@ const addToCart = (item, type) => {
                                                 <span>{selectedVariant.itemCode}</span>
                                             )}
                                         </td>
+                                        <td>{consumable.description}</td>
                                         <td className="min-w-[250px]">
                                             {consumable.variants.length > 1 ? (
                                                 <select 
@@ -737,28 +759,6 @@ const addToCart = (item, type) => {
                                         </td>
                                         <td>{selectedVariant.quantity}</td>
                                         <td>{selectedVariant.uom}</td>
-                                        <td>
-                                            <button 
-                                                className="btn btn-sm btn-primary"
-                                                disabled={!selectedApprover}
-                                                onClick={() => {
-                                                    const selectedVariant = getSelectedConsumableVariant(consumable);
-                                                    addToCart({
-                                                        id: selectedVariant.id,
-                                                        itemCode: selectedVariant.itemCode,
-                                                        description: consumable.description,
-                                                        detailedDescription: selectedVariant.detailedDescription,
-                                                        serial: selectedVariant.serial,
-                                                        quantity: selectedVariant.quantity,
-                                                        uom: selectedVariant.uom
-                                                    }, 'consumable');
-                                                }}
-                                            >
-                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-                                                </svg>
-                                            </button>
-                                        </td>
                                     </tr>
                                 );
                             })
@@ -773,108 +773,106 @@ const addToCart = (item, type) => {
         </div>
     )}
 
-    {activeTab === "supplies" && (
-        <div>
-            <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold mb-3">Supplies</h3>
-                <button 
-                    className="btn btn-primary gap-2"
-                    onClick={() => setIsCartModalOpen(true)}
-                >
-                    <div className="indicator">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-                        </svg>
-                        {cartItems.length > 0 && (
-                            <span className="indicator-item badge badge-secondary">{cartItems.length}</span>
-                        )}
-                    </div>
-                    Cart Items
-                </button>
-            </div>
-            
-            {/* Search Bar */}
-            <div className="mb-4">
-                <input 
-                    type="text" 
-                    placeholder="Search by Description, Detailed Description, or Item Code..." 
-                    className="input input-bordered w-full"
-                    value={suppliesSearch}
-                    onChange={(e) => setSuppliesSearch(e.target.value)}
-                />
-            </div>
+{activeTab === "supplies" && (
+    <div>
+        <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-semibold mb-3">Supplies</h3>
+            <button 
+                className="btn btn-primary gap-2"
+                onClick={() => setIsCartModalOpen(true)}
+            >
+                <div className="indicator">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                    {cartItems.length > 0 && (
+                        <span className="indicator-item badge badge-secondary">{cartItems.length}</span>
+                    )}
+                </div>
+                Cart Items
+            </button>
+        </div>
+        
+        {/* Search Bar */}
+        <div className="mb-4">
+            <input 
+                type="text" 
+                placeholder="Search by Description, Detailed Description, or Item Code..." 
+                className="input input-bordered w-full"
+                value={suppliesSearch}
+                onChange={(e) => setSuppliesSearch(e.target.value)}
+            />
+        </div>
 
-            <div className="overflow-x-auto">
-                <table className="table table-zebra">
-                    <thead>
-                        <tr>
-                            <th>Description</th>
-                            <th className="min-w-[350px]">Detailed Description</th>
-                            <th>Quantity</th>
-                            <th>UOM</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {filteredSupplies.length > 0 ? (
-                            filteredSupplies.map((supply, index) => {
-                                const selectedVariant = getSelectedVariant(supply);
+        <div className="overflow-x-auto">
+            <table className="table table-zebra">
+                <thead>
+                    <tr>
+                        <th>Action</th>
+                        <th>Item Code</th>
+                        <th>Description</th>
+                        <th className="min-w-[300px]">Detailed Description</th>
+                        <th>Quantity</th>
+                        <th>UOM</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {suppliesData.filter(supply => {
+                        const searchLower = suppliesSearch.toLowerCase();
+                        return (
+                            supply.description.toLowerCase().includes(searchLower) ||
+                            supply.detailedDescription.toLowerCase().includes(searchLower) ||
+                            supply.itemCode.toLowerCase().includes(searchLower)
+                        );
+                    }).length > 0 ? (
+                        suppliesData
+                            .filter(supply => {
+                                const searchLower = suppliesSearch.toLowerCase();
                                 return (
-                                    <tr key={index}>
-                                        <td>{supply.description}</td>
-                                        <td className="min-w-[350px]">
-                                            {supply.variants.length > 1 ? (
-                                                <select 
-                                                    className="select select-bordered w-full h-auto py-2"
-                                                    value={selectedVariant.detailedDescription}
-                                                    onChange={(e) => handleSupplyDetailChange(supply.description, e.target.value)}
-                                                >
-                                                    {supply.variants.map((variant, vIndex) => (
-                                                        <option key={vIndex} value={variant.detailedDescription}>
-                                                            {variant.detailedDescription} - {variant.itemCode}
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                            ) : (
-                                                <span>{selectedVariant.detailedDescription} - {selectedVariant.itemCode}</span>
-                                            )}
-                                        </td>
-                                        <td>{selectedVariant.quantity}</td>
-                                        <td>{selectedVariant.uom}</td>
-                                        <td>
-                                            <button 
-                                                className="btn btn-sm btn-primary"
-                                                disabled={!selectedApprover}
-                                                onClick={() => {
-                                                    const selectedVariant = getSelectedVariant(supply);
-                                                    addToCart({
-                                                        id: selectedVariant.id,
-                                                        itemCode: selectedVariant.itemCode,
-                                                        description: supply.description,
-                                                        detailedDescription: selectedVariant.detailedDescription,
-                                                        quantity: selectedVariant.quantity,
-                                                        uom: selectedVariant.uom
-                                                    }, 'supplies');
-                                                }}
-                                            >
-                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-                                                </svg>
-                                            </button>
-                                        </td>
-                                    </tr>
+                                    supply.description.toLowerCase().includes(searchLower) ||
+                                    supply.detailedDescription.toLowerCase().includes(searchLower) ||
+                                    supply.itemCode.toLowerCase().includes(searchLower)
                                 );
                             })
-                        ) : (
-                            <tr>
-                                <td colSpan="5" className="text-center py-4">No supplies found</td>
-                            </tr>
-                        )}
-                    </tbody>
-                </table>
-            </div>
+                            .map((supply, index) => (
+                                <tr key={index}>
+                                    <td>
+                                        <button 
+                                            className="btn btn-sm btn-primary"
+                                            disabled={!selectedApprover}
+                                            onClick={() => {
+                                                addToCart({
+                                                    id: supply.id,
+                                                    itemCode: supply.itemCode,
+                                                    description: supply.description,
+                                                    detailedDescription: supply.detailedDescription,
+                                                    quantity: supply.quantity,
+                                                    uom: supply.uom
+                                                }, 'supplies');
+                                            }}
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                                            </svg>
+                                        </button>
+                                    </td>
+                                    <td>{supply.itemCode}</td>
+                                    <td>{supply.description}</td>
+                                    <td className="min-w-[300px]">{supply.detailedDescription}</td>
+                                    <td>{supply.quantity}</td>
+                                    <td>{supply.uom}</td>
+                                </tr>
+                            ))
+                    ) : (
+                        <tr>
+                            <td colSpan="6" className="text-center py-4">No supplies found</td>
+                        </tr>
+                    )}
+                </tbody>
+            </table>
         </div>
-    )}
+    </div>
+)}
 
 {activeTab === "consigned" && isConsignedUser && (
     <div>

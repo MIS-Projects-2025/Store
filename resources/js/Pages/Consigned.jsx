@@ -1,9 +1,20 @@
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout";
 import { Head, usePage, router } from "@inertiajs/react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function Consigned({ tableData, tableFilters, nextConsignedNo }) {
     const props = usePage().props;
+
+    const consignedItems = tableData?.data || [];
+    const pagination = tableData?.pagination || {
+        from: 0,
+        to: 0,
+        total: 0,
+        current_page: 1,
+        last_page: 1,
+        per_page: 10
+    };
+
     const [mainSearchQuery, setMainSearchQuery] = useState("");
     const [isImporting, setIsImporting] = useState(false);
     const [viewDetailsModal, setViewDetailsModal] = useState(false);
@@ -27,6 +38,31 @@ export default function Consigned({ tableData, tableFilters, nextConsignedNo }) 
     const [historyData, setHistoryData] = useState([]);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [selectedDetailForHistory, setSelectedDetailForHistory] = useState(null);
+    const [rowSelections, setRowSelections] = useState({});
+    const [supplierSelections, setSupplierSelections] = useState({});
+    const [expirationSelections, setExpirationSelections] = useState({});
+
+    useEffect(() => {
+        const newRowSelections = consignedItems.reduce((acc, item) => {
+            acc[item.id] = item.selected_itemcode ?? "";
+            return acc;
+        }, {});
+        
+        const newSupplierSelections = consignedItems.reduce((acc, item) => {
+            acc[item.id] = item.selected_supplier ?? "";
+            return acc;
+        }, {});
+        
+        const newExpirationSelections = consignedItems.reduce((acc, item) => {
+            acc[item.id] = item.selected_expiration ?? null;
+            return acc;
+        }, {});
+        
+        setRowSelections(newRowSelections);
+        setSupplierSelections(newSupplierSelections);
+        setExpirationSelections(newExpirationSelections);
+    }, [consignedItems]);
+    
 
     const getActionLabel = (action) => {
         const labels = {
@@ -314,15 +350,7 @@ export default function Consigned({ tableData, tableFilters, nextConsignedNo }) 
     const [isSaving, setIsSaving] = useState(false);
     const [tempConsignedNo, setTempConsignedNo] = useState('');
     
-    const consignedItems = tableData?.data || [];
-    const pagination = tableData?.pagination || {
-        from: 0,
-        to: 0,
-        total: 0,
-        current_page: 1,
-        last_page: 1,
-        per_page: 10
-    };
+
 
     const handleImport = () => {
         document.getElementById('excel-file-input').click();
@@ -332,7 +360,22 @@ export default function Consigned({ tableData, tableFilters, nextConsignedNo }) 
         const file = e.target.files[0];
         if (file) {
             setIsImporting(true);
-            setTimeout(() => setIsImporting(false), 2000);
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            router.post(route('consigned.import'), formData, {
+                onSuccess: () => {
+                    setIsImporting(false);
+                    alert('File imported successfully!');
+                    e.target.value = ''; // Reset file input
+                },
+                onError: (errors) => {
+                    setIsImporting(false);
+                    alert('Import failed: ' + (errors.file || 'Unknown error'));
+                    e.target.value = ''; // Reset file input
+                }
+            });
         }
     };
 
@@ -372,13 +415,6 @@ export default function Consigned({ tableData, tableFilters, nextConsignedNo }) 
             preserveScroll: true
         });
     };
-
-    const [rowSelections, setRowSelections] = useState(
-        consignedItems.reduce((acc, item) => {
-            acc[item.id] = item.selected_itemcode ?? "";
-            return acc;
-        }, {})
-    );
 
     const openAddItemModal = () => {
         setNewItem({ description: '', category: '' });
@@ -715,13 +751,6 @@ const handleSaveEdit = (consignedId) => {
         }
     });
 };
-
-const [supplierSelections, setSupplierSelections] = useState(
-    consignedItems.reduce((acc, item) => {
-        acc[item.id] = item.selected_supplier ?? "";
-        return acc;
-    }, {})
-);
     return (
         <AuthenticatedLayout>
             <Head title="Consigned" />
@@ -782,51 +811,51 @@ const [supplierSelections, setSupplierSelections] = useState(
                     </div>
                 </div>
 
-                {/* Search Bar and Pagination Controls */}
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                    <div className="flex gap-2 w-full md:w-auto">
-                        <input 
-                            type="text" 
-                            placeholder="Search consigned items..." 
-                            className="input input-bordered w-full md:w-64"
-                            value={mainSearchQuery}
-                            onChange={handleSearch}
-                        />
-                        {mainSearchQuery && (
-                            <button 
-                                className="btn btn-ghost btn-circle"
-                                title="Clear search"
-                                onClick={handleClearSearch}
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                                </svg>
-                            </button>
-                        )}
+            {/* Search Bar and Pagination Controls */}
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div className="flex gap-2 w-full md:w-auto">
+                    <input 
+                        type="text" 
+                        placeholder="Search consigned items..." 
+                        className="input input-bordered w-full md:w-64"
+                        value={mainSearchQuery}
+                        onChange={handleSearch}
+                    />
+                    {mainSearchQuery && (
+                        <button 
+                            className="btn btn-ghost btn-circle"
+                            title="Clear search"
+                            onClick={handleClearSearch}
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                            </svg>
+                        </button>
+                    )}
+                </div>
+                
+                <div className="flex items-center gap-4 w-full md:w-auto">
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm">Show</span>
+                        <select 
+                            className="select select-bordered select-sm"
+                            value={pagination.per_page}
+                            onChange={handlePerPageChange}
+                        >
+                            <option value="5">5</option>
+                            <option value="10">10</option>
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                        </select>
+                        <span className="text-sm">entries</span>
                     </div>
                     
-                    <div className="flex items-center gap-4 w-full md:w-auto">
-                        <div className="flex items-center gap-2">
-                            <span className="text-sm">Show</span>
-                            <select 
-                                className="select select-bordered select-sm"
-                                value={pagination.per_page}
-                                onChange={handlePerPageChange}
-                            >
-                                <option value="5">5</option>
-                                <option value="10">10</option>
-                                <option value="25">25</option>
-                                <option value="50">50</option>
-                                <option value="100">100</option>
-                            </select>
-                            <span className="text-sm">entries</span>
-                        </div>
-                        
-                        <div className="text-sm">
-                            Showing {pagination.from} to {pagination.to} of {pagination.total} entries
-                        </div>
+                    <div className="text-sm">
+                        Showing {pagination.from} to {pagination.to} of {pagination.total} entries
                     </div>
                 </div>
+            </div>
 
                 {/* Data Table */}
                 <div className="overflow-x-auto bg-base-100 rounded-lg shadow">
@@ -836,6 +865,7 @@ const [supplierSelections, setSupplierSelections] = useState(
                                 <th>Item Code</th>
                                 <th>Description</th>
                                 <th>Supplier</th>
+                                <th>Expiration Date</th>
                                 <th>Category</th>
                                 <th className="text-center">Action</th>
                             </tr>
@@ -853,13 +883,29 @@ const [supplierSelections, setSupplierSelections] = useState(
                 return acc;
             }, {});
 
-            // Create a map of suppliers to item codes
             const supplierToItem = activeDetails.reduce((acc, detail) => {
                 if (!acc[detail.supplier]) {
                     acc[detail.supplier] = detail.item_code;
                 }
                 return acc;
             }, {});
+
+            // ✅ Updated: Create a function to get nearest expiration date
+            const getNearestExpiration = (itemCode, supplier) => {
+                const matchingDetails = activeDetails.filter(detail => 
+                    detail.item_code === itemCode && detail.supplier === supplier
+                );
+                
+                if (matchingDetails.length === 0) return null;
+                
+                // Filter details with expiration dates and sort by date
+                const withExpiration = matchingDetails
+                    .filter(d => d.expiration)
+                    .sort((a, b) => new Date(a.expiration) - new Date(b.expiration));
+                
+                // Return the nearest date, or null if none have expiration
+                return withExpiration.length > 0 ? withExpiration[0].expiration : null;
+            };
 
             // Get active item codes (with qty > 0)
             const activeItemCodes = activeDetails.map(detail => detail.item_code).filter(Boolean);
@@ -870,6 +916,8 @@ const [supplierSelections, setSupplierSelections] = useState(
 
             const selectedItemCode = rowSelections[consigned.id];
             const selectedSupplier = supplierSelections[consigned.id];
+            const selectedExpiration = expirationSelections[consigned.id];
+            
             const isEditing = editingRow === consigned.id;
 
             return (
@@ -881,8 +929,10 @@ const [supplierSelections, setSupplierSelections] = useState(
                             onChange={(e) => {
                                 const newItemCode = e.target.value;
                                 const newSupplier = itemToSupplier[newItemCode] ?? "";
+                                
+                                // ✅ Get nearest expiration for the new selection
+                                const newExpiration = getNearestExpiration(newItemCode, newSupplier);
 
-                                // Update both states immediately
                                 setRowSelections((prev) => ({
                                     ...prev,
                                     [consigned.id]: newItemCode,
@@ -891,6 +941,11 @@ const [supplierSelections, setSupplierSelections] = useState(
                                 setSupplierSelections((prev) => ({
                                     ...prev,
                                     [consigned.id]: newSupplier,
+                                }));
+
+                                setExpirationSelections((prev) => ({
+                                    ...prev,
+                                    [consigned.id]: newExpiration,
                                 }));
 
                                 router.put(route('consigned.updateItem', consigned.id), {
@@ -931,8 +986,10 @@ const [supplierSelections, setSupplierSelections] = useState(
                             onChange={(e) => {
                                 const newSupplier = e.target.value;
                                 const matchingItemCode = supplierToItem[newSupplier] ?? "";
+                                
+                                // ✅ Get nearest expiration for the new selection
+                                const newExpiration = getNearestExpiration(matchingItemCode, newSupplier);
 
-                                // Update both states immediately
                                 setSupplierSelections((prev) => ({
                                     ...prev,
                                     [consigned.id]: newSupplier,
@@ -941,6 +998,11 @@ const [supplierSelections, setSupplierSelections] = useState(
                                 setRowSelections((prev) => ({
                                     ...prev,
                                     [consigned.id]: matchingItemCode,
+                                }));
+
+                                setExpirationSelections((prev) => ({
+                                    ...prev,
+                                    [consigned.id]: newExpiration,
                                 }));
 
                                 router.put(route('consigned.updateItem', consigned.id), {
@@ -959,6 +1021,15 @@ const [supplierSelections, setSupplierSelections] = useState(
                         </select>
                     </td>
                     <td>
+                        {selectedExpiration 
+                            ? new Date(selectedExpiration).toLocaleDateString('en-US', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric'
+                              })
+                            : '-'}
+                    </td>
+                    <td>
                         {isEditing ? (
                             <input
                                 type="text"
@@ -974,88 +1045,92 @@ const [supplierSelections, setSupplierSelections] = useState(
                             consigned.category ?? '-'
                         )}
                     </td>
-                    <td className="text-center">
-                        <div className="flex gap-2 justify-center">
-                            {isEditing ? (
-                                <>
-                                    <button 
-                                        className="btn btn-sm btn-success" 
-                                        title="Save"
-                                        onClick={() => handleSaveEdit(consigned.id)}
-                                        disabled={isSaving}
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                        </svg>
-                                    </button>
-                                    <button 
-                                        className="btn btn-sm btn-ghost" 
-                                        title="Cancel"
-                                        onClick={handleCancelEdit}
-                                        disabled={isSaving}
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                                        </svg>
-                                    </button>
-                                </>
-                            ) : (
-                                <>
-                                    <button 
-                                        className="btn btn-sm btn-ghost" 
-                                        title="View Details"
-                                        onClick={() => {
-                                            setSelectedConsigned(consigned);
-                                            setViewDetailsModal(true);
-                                            setEditingDetails(false);
-                                            if (consigned.details) {
-                                                setEditableDetails([...consigned.details.map(detail => ({
-                                                    ...detail,
-                                                    isNew: false
-                                                }))]);
-                                            } else {
-                                                setEditableDetails([]);
-                                            }
-                                        }}
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                            <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-                                            <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
-                                        </svg>
-                                    </button>
-                                    <button className="btn btn-sm btn-ghost" title="View History" onClick={() => openConsignedHistory(consigned)}>
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-                                        </svg>
-                                    </button>
-                                    <button 
-                                        className="btn btn-sm btn-ghost" 
-                                        title="Edit"
-                                        onClick={() => handleEditClick(consigned)}
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                            <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                                        </svg>
-                                    </button>
-                                    <button 
-                                        className="btn btn-sm btn-ghost text-error" 
-                                        title="Delete"
-                                        onClick={() => openDeleteConsignedModal(consigned)}
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                                        </svg>
-                                    </button>
-                                </>
-                            )}
-                        </div>
-                    </td>
+<td className="text-center">
+    <div className="flex gap-2 justify-center">
+        {isEditing ? (
+            <>
+                <button 
+                    className="btn btn-sm btn-success" 
+                    title="Save"
+                    onClick={() => handleSaveEdit(consigned.id)}
+                    disabled={isSaving}
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                </button>
+                <button 
+                    className="btn btn-sm btn-ghost" 
+                    title="Cancel"
+                    onClick={handleCancelEdit}
+                    disabled={isSaving}
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                </button>
+            </>
+        ) : (
+            <>
+                <button 
+                    className="btn btn-sm btn-ghost" 
+                    title="View Details"
+                    onClick={() => {
+                        setSelectedConsigned(consigned);
+                        setViewDetailsModal(true);
+                        setEditingDetails(false);
+                        if (consigned.details) {
+                            setEditableDetails([...consigned.details.map(detail => ({
+                                ...detail,
+                                isNew: false
+                            }))]);
+                        } else {
+                            setEditableDetails([]);
+                        }
+                    }}
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+                        <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
+                    </svg>
+                </button>
+                <button 
+                    className="btn btn-sm btn-ghost" 
+                    title="View History" 
+                    onClick={() => openConsignedHistory(consigned)}
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                    </svg>
+                </button>
+                <button 
+                    className="btn btn-sm btn-ghost" 
+                    title="Edit"
+                    onClick={() => handleEditClick(consigned)}
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                    </svg>
+                </button>
+                <button 
+                    className="btn btn-sm btn-ghost text-error" 
+                    title="Delete"
+                    onClick={() => openDeleteConsignedModal(consigned)}
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                </button>
+            </>
+        )}
+    </div>
+</td>
                 </tr>
             );
         })
     ) : (
         <tr>
-            <td colSpan="5" className="text-center py-8 text-gray-500">
+            <td colSpan="6" className="text-center py-8 text-gray-500">
                 No consigned items found
             </td>
         </tr>

@@ -10,6 +10,8 @@ use App\Models\ConsignedDetailHistory;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
+use App\Imports\ConsignedImport;
+use Maatwebsite\Excel\Facades\Excel;
 
 class ConsignedController extends Controller
 {
@@ -33,76 +35,126 @@ class ConsignedController extends Controller
         ]);
     }
 
-    public function index(Request $request)
-    {
-        $perPage = $request->input('per_page', 10);
-        $search  = $request->input('search');
+public function index(Request $request)
+{
+    $perPage = $request->input('per_page', 10);
+    $search  = $request->input('search');
 
-        $query = Consigned::query()
-            ->orderBy('created_at', 'desc');
+    $query = Consigned::query()
+        ->orderBy('created_at', 'desc');
 
-        if ($search) {
-            $query->where(function ($q) use ($search) {
-                $q->where('consigned_no', 'like', "%{$search}%")
-                  ->orWhere('selected_itemcode', 'like', "%{$search}%")
-                  ->orWhere('selected_supplier', 'like', "%{$search}%");
-            });
-        }
+    if ($search) {
+        $query->where(function ($q) use ($search) {
+            $q->where('consigned_no', 'like', "%{$search}%")
+              ->orWhere('mat_description', 'like', "%{$search}%")
+              ->orWhere('selected_itemcode', 'like', "%{$search}%")
+              ->orWhere('selected_supplier', 'like', "%{$search}%")
+              ->orWhere('category', 'like', "%{$search}%")
+              ->orWhereHas('details', function($subQ) use ($search) {
+                  $subQ->where('item_code', 'like', "%{$search}%")
+                       ->orWhere('supplier', 'like', "%{$search}%");
+              });
+        });
+    }
 
-        $consigned = $query->paginate($perPage)->withQueryString();
+    $consigned = $query->paginate($perPage)->withQueryString();
 
-        $consigned->getCollection()->transform(function ($row) {
-            $details = ConsignedDetail::where('consigned_no', $row->consigned_no)->get();
+    $consigned->getCollection()->transform(function ($row) {
+        // Get only details with qty > 0
+        $details = ConsignedDetail::where('consigned_no', $row->consigned_no)
+            ->where('qty', '>', 0)
+            ->get();
 
-            $row->item_codes = $details
-                ->pluck('item_code')
-                ->unique()
-                ->values();
+        $row->item_codes = $details
+            ->pluck('item_code')
+            ->unique()
+            ->values();
 
-            $row->suppliers = $details
-                ->pluck('supplier')
-                ->unique()
-                ->values();
+        $row->suppliers = $details
+            ->pluck('supplier')
+            ->unique()
+            ->values();
 
-            $row->details = $details->map(function ($d) {
-                return [
-                    'id' => $d->id,
-                    'item_code' => $d->item_code,
-                    'supplier' => $d->supplier,
-                    'expiration' => $d->expiration,
-                    'uom' => $d->uom,
-                    'qty' => $d->qty,
-                    'qty_per_box' => $d->qty_per_box,
-                    'minimum' => $d->minimum,
-                    'maximum' => $d->maximum,
-                    'price' => $d->price,
-                    'bin_location' => $d->bin_location,
-                ];
-            });
-
-            return $row;
+        // ✅ FIXED: Validate current selections against active details
+        $hasValidSelection = $details->contains(function ($detail) use ($row) {
+            return $detail->item_code === $row->selected_itemcode 
+                && $detail->supplier === $row->selected_supplier;
         });
 
-        $nextConsignedNo = $this->generateConsignedNumber();
+        // If current selection is invalid or empty, auto-select first available
+        if (!$hasValidSelection && $details->isNotEmpty()) {
+            $firstDetail = $details->first();
+            $row->selected_itemcode = $firstDetail->item_code;
+            $row->selected_supplier = $firstDetail->supplier;
+            
+            // Update database to persist the selection
+            \DB::table('consigned')
+                ->where('id', $row->id)
+                ->update([
+                    'selected_itemcode' => $firstDetail->item_code,
+                    'selected_supplier' => $firstDetail->supplier,
+                ]);
+        }
 
-        return Inertia::render('Consigned', [
-            'tableData' => [
-                'data' => $consigned->items(),
-                'pagination' => [
-                    'from'          => $consigned->firstItem() ?? 0,
-                    'to'            => $consigned->lastItem() ?? 0,
-                    'total'         => $consigned->total(),
-                    'current_page' => $consigned->currentPage(),
-                    'last_page'    => $consigned->lastPage(),
-                    'per_page'     => $consigned->perPage(),
-                ],
+        // Find detail with nearest expiration date for current selection
+        $matchingDetails = $details->filter(function ($detail) use ($row) {
+            return $detail->item_code === $row->selected_itemcode 
+                && $detail->supplier === $row->selected_supplier;
+        });
+
+        // Sort by expiration date (nearest first, nulls last)
+        $selectedDetail = $matchingDetails->sort(function ($a, $b) {
+            if ($a->expiration && $b->expiration) {
+                return strtotime($a->expiration) <=> strtotime($b->expiration);
+            }
+            if ($a->expiration) return -1;
+            if ($b->expiration) return 1;
+            return 0;
+        })->first();
+        
+        $row->selected_expiration = $selectedDetail ? $selectedDetail->expiration : null;
+
+        // Map all details (including zero qty for history purposes in details view)
+        $allDetails = ConsignedDetail::where('consigned_no', $row->consigned_no)->get();
+        $row->details = $allDetails->map(function ($d) {
+            return [
+                'id' => $d->id,
+                'item_code' => $d->item_code,
+                'supplier' => $d->supplier,
+                'expiration' => $d->expiration,
+                'uom' => $d->uom,
+                'qty' => $d->qty,
+                'qty_per_box' => $d->qty_per_box,
+                'minimum' => $d->minimum,
+                'maximum' => $d->maximum,
+                'price' => $d->price,
+                'bin_location' => $d->bin_location,
+            ];
+        });
+
+        return $row;
+    });
+
+    $nextConsignedNo = $this->generateConsignedNumber();
+
+    return Inertia::render('Consigned', [
+        'tableData' => [
+            'data' => $consigned->items(),
+            'pagination' => [
+                'from'          => $consigned->firstItem() ?? 0,
+                'to'            => $consigned->lastItem() ?? 0,
+                'total'         => $consigned->total(),
+                'current_page' => $consigned->currentPage(),
+                'last_page'    => $consigned->lastPage(),
+                'per_page'     => $consigned->perPage(),
             ],
-            'tableFilters' => [
-                'search' => $search,
-            ],
-            'nextConsignedNo' => $nextConsignedNo,
-        ]);
-    }
+        ],
+        'tableFilters' => [
+            'search' => $search,
+        ],
+        'nextConsignedNo' => $nextConsignedNo,
+    ]);
+}
 
     public function updateItem(Request $request, $id)
     {
@@ -417,5 +469,31 @@ class ConsignedController extends Controller
         $items = $query->limit(20)->get();
         
         return response()->json($items);
+    }
+
+    public function import(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|mimes:xlsx,xls,csv|max:5120', // 5MB max
+        ]);
+
+        try {
+            Excel::import(new ConsignedImport, $request->file('file'));
+            
+            return redirect()->back()->with('success', 'File imported successfully!');
+            
+        } catch (\Maatwebsite\Excel\Validators\ValidationException $e) {
+            $failures = $e->failures();
+            $errors = [];
+            
+            foreach ($failures as $failure) {
+                $errors[] = "Row {$failure->row()}: " . implode(', ', $failure->errors());
+            }
+            
+            return redirect()->back()->with('error', 'Import failed: ' . implode("\n", $errors));
+            
+        } catch (\Exception $e) {
+            return redirect()->back()->with('error', 'Import failed: ' . $e->getMessage());
+        }
     }
 }

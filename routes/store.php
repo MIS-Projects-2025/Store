@@ -108,4 +108,8 @@ Route::prefix($app_name)
 
         Route::post('/material-issuance/update-consigned-remarks', [MaterialIssuanceController::class, 'updateConsignedRemarks'])
             ->name('material-issuance.update-consigned-remarks');
+
+        // Real time functions
+        Route::get('/material-issuance/pending-count', [MaterialIssuanceController::class, 'getPendingCount'])
+            ->name('material-issuance.pending-count');
     });

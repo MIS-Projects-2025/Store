@@ -11,6 +11,9 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Carbon\Carbon;
+use App\Imports\SuppliesImport;
+use Maatwebsite\Excel\Facades\Excel;
+use Illuminate\Support\Facades\Log;
 
 class SuppliesController extends Controller
 {
@@ -418,29 +421,36 @@ public function updateDetail(Request $request, $suppliesNo, $itemCode)
         return response()->json($details);
     }
 
-    /**
-     * Import supplies from Excel
-     */
     public function import(Request $request)
-    {
-        $request->validate([
-            'file' => 'required|file|mimes:xlsx,xls,csv',
-        ]);
+{
+    $request->validate([
+        'file' => 'required|mimes:xlsx,xls,csv|max:5120',
+    ]);
 
-        // TODO: Implement Excel import logic using Laravel Excel or similar package
-        // This would parse the file and create supplies and details
-
-        return back()->with('success', 'Import completed successfully!');
+    try {
+        Log::info('Supplies import started - File: ' . $request->file('file')->getClientOriginalName());
+        
+        Excel::import(new SuppliesImport, $request->file('file'));
+        
+        Log::info('Supplies import completed successfully');
+        return redirect()->back()->with('success', 'File imported successfully!');
+        
+    } catch (\Maatwebsite\Excel\Validators\ValidationException $e) {
+        $failures = $e->failures();
+        $errors = [];
+        
+        foreach ($failures as $failure) {
+            $errors[] = "Row {$failure->row()}: " . implode(', ', $failure->errors());
+        }
+        
+        Log::error('Validation errors: ' . implode("\n", $errors));
+        return redirect()->back()->withErrors(['error' => 'Import failed: ' . implode("<br>", $errors)]);
+        
+    } catch (\Exception $e) {
+        Log::error('Supplies import failed: ' . $e->getMessage());
+        Log::error('Stack trace: ' . $e->getTraceAsString());
+        return redirect()->back()->withErrors(['error' => 'Import failed: ' . $e->getMessage()]);
     }
+}
 
-    /**
-     * Export supplies to Excel
-     */
-    public function export()
-    {
-        // TODO: Implement Excel export logic
-        // This would generate an Excel file with all supplies and details
-
-        return back()->with('success', 'Export completed successfully!');
-    }
 }

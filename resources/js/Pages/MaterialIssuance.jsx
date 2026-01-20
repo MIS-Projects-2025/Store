@@ -1,6 +1,6 @@
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout";
 import { Head, usePage, router } from "@inertiajs/react";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Eye, RotateCcw, X } from "lucide-react";
 
 /* -------------------- TABS -------------------- */
@@ -31,6 +31,34 @@ export default function MaterialIssuance() {
     const [selectedItemForReplace, setSelectedItemForReplace] = useState(null);
     const [availableReplacements, setAvailableReplacements] = useState([]);
     const [replacementQuantity, setReplacementQuantity] = useState(1);
+
+    // ==================== REAL-TIME BROADCASTING ====================
+    useEffect(() => {
+        // Import Echo if not already available
+        if (typeof window.Echo === 'undefined') {
+            console.error('Laravel Echo is not initialized');
+            return;
+        }
+
+        // Listen to the material-issuance channel
+        const channel = window.Echo.channel('material-issuance');
+        
+        channel.listen('.material.updated', (event) => {
+            console.log('Material updated:', event);
+            
+            // Reload the page data when any update occurs
+            router.reload({
+                only: ['consumables', 'supplies', 'consigned'],
+                preserveState: true,
+                preserveScroll: true,
+            });
+        });
+
+        // Cleanup on unmount
+        return () => {
+            window.Echo.leave('material-issuance');
+        };
+    }, []);
 
     /* -------------------- DATA SELECTOR -------------------- */
     const baseData = useMemo(() => {
@@ -220,113 +248,106 @@ export default function MaterialIssuance() {
         });
     };
 
-const handleReplaceItem = (item) => {
-    setSelectedItemForReplace(item);
-    setReplacementQuantity(1); // Initialize with 1
-    
-    const routeName = activeMainTab === "consumable" 
-        ? 'material-issuance.get-replacement-items-consumable'
-        : activeMainTab === "supplies"
-        ? 'material-issuance.get-replacement-items-supplies'
-        : 'material-issuance.get-replacement-items-consigned';
+    const handleReplaceItem = (item) => {
+        setSelectedItemForReplace(item);
+        setReplacementQuantity(1);
+        
+        const routeName = activeMainTab === "consumable" 
+            ? 'material-issuance.get-replacement-items-consumable'
+            : activeMainTab === "supplies"
+            ? 'material-issuance.get-replacement-items-supplies'
+            : 'material-issuance.get-replacement-items-consigned';
 
-    // Pass material_description to filter replacement items
-    const params = activeMainTab === "consigned" 
-        ? { material_description: item.material_description }
-        : {};
+        const params = activeMainTab === "consigned" 
+            ? { material_description: item.material_description }
+            : {};
 
-    router.get(route(routeName), params, {
-        preserveScroll: true,
-        preserveState: true,
-        onSuccess: (page) => {
-            setAvailableReplacements(page.props.replacementItems || []);
-            setShowReplaceModal(true);
-        }
-    });
-};
+        router.get(route(routeName), params, {
+            preserveScroll: true,
+            preserveState: true,
+            onSuccess: (page) => {
+                setAvailableReplacements(page.props.replacementItems || []);
+                setShowReplaceModal(true);
+            }
+        });
+    };
 
     const closeReplaceModal = () => {
         setShowReplaceModal(false);
         setSelectedItemForReplace(null);
         setAvailableReplacements([]);
-        setReplacementQuantity(1); // Reset quantity
+        setReplacementQuantity(1);
     };
 
-const handleConfirmReplacement = (replacementItem) => {
-    if (!selectedItemForReplace || !selectedMRS) return;
+    const handleConfirmReplacement = (replacementItem) => {
+        if (!selectedItemForReplace || !selectedMRS) return;
 
-    // Validate quantity
-    const maxQty = selectedItemForReplace.issued_quantity ?? selectedItemForReplace.issued_qty ?? 0;
-    if (replacementQuantity > maxQty) {
-        alert(`Replacement quantity cannot exceed ${maxQty}`);
-        return;
-    }
-
-    if (replacementQuantity < 1) {
-        alert('Replacement quantity must be at least 1');
-        return;
-    }
-
-    if (!confirm(`Replace ${replacementQuantity} unit(s) of this item?`)) {
-        return;
-    }
-
-    setIsProcessing(true);
-
-    const routeName = activeMainTab === "consumable" 
-        ? 'material-issuance.replace-item-consumable'
-        : activeMainTab === "supplies"
-        ? 'material-issuance.replace-item-supplies'
-        : 'material-issuance.replace-item-consigned';
-
-    const payload = {
-        mrs_no: selectedMRS.mrs_no,
-        old_item_id: selectedItemForReplace.id,
-        new_item_code: replacementItem.item_code,
-        replacement_qty: replacementQuantity,
-    };
-
-    // Add type-specific fields
-    if (activeMainTab === "consumable") {
-        payload.new_serial = replacementItem.serial;
-    } else if (activeMainTab === "consigned") {
-        payload.new_supplier = replacementItem.supplier;
-    }
-
-    router.post(route(routeName), payload, {
-        preserveScroll: true,
-        preserveState: true, // ✅ CHANGED: Keep the page state
-        only: [activeMainTab === "consumable" ? 'consumables' : activeMainTab === "supplies" ? 'supplies' : 'consigned'], // ✅ ADDED: Only reload specific data
-        onSuccess: (page) => {
-            // Get updated data from the response
-            const updatedData = activeMainTab === "consumable" 
-                ? page.props.consumables 
-                : activeMainTab === "supplies"
-                ? page.props.supplies
-                : page.props.consigned;
-            
-            // Find the updated MRS
-            const updatedMRS = updatedData.find(mrs => mrs.mrs_no === selectedMRS.mrs_no);
-            
-            if (updatedMRS) {
-                // ✅ Update the modal with fresh data
-                setSelectedMRS(updatedMRS);
-                
-                // Update issued quantities state
-                const newQuantities = {};
-                updatedMRS.items.forEach(item => {
-                    newQuantities[item.id] = item.issued_quantity ?? item.issued_qty ?? 1;
-                });
-                setIssuedQuantities(newQuantities);
-            }
-            
-            closeReplaceModal();
-        },
-        onFinish: () => {
-            setIsProcessing(false);
+        const maxQty = selectedItemForReplace.issued_quantity ?? selectedItemForReplace.issued_qty ?? 0;
+        if (replacementQuantity > maxQty) {
+            alert(`Replacement quantity cannot exceed ${maxQty}`);
+            return;
         }
-    });
-};
+
+        if (replacementQuantity < 1) {
+            alert('Replacement quantity must be at least 1');
+            return;
+        }
+
+        if (!confirm(`Replace ${replacementQuantity} unit(s) of this item?`)) {
+            return;
+        }
+
+        setIsProcessing(true);
+
+        const routeName = activeMainTab === "consumable" 
+            ? 'material-issuance.replace-item-consumable'
+            : activeMainTab === "supplies"
+            ? 'material-issuance.replace-item-supplies'
+            : 'material-issuance.replace-item-consigned';
+
+        const payload = {
+            mrs_no: selectedMRS.mrs_no,
+            old_item_id: selectedItemForReplace.id,
+            new_item_code: replacementItem.item_code,
+            replacement_qty: replacementQuantity,
+        };
+
+        if (activeMainTab === "consumable") {
+            payload.new_serial = replacementItem.serial;
+        } else if (activeMainTab === "consigned") {
+            payload.new_supplier = replacementItem.supplier;
+        }
+
+        router.post(route(routeName), payload, {
+            preserveScroll: true,
+            preserveState: true,
+            only: [activeMainTab === "consumable" ? 'consumables' : activeMainTab === "supplies" ? 'supplies' : 'consigned'],
+            onSuccess: (page) => {
+                const updatedData = activeMainTab === "consumable" 
+                    ? page.props.consumables 
+                    : activeMainTab === "supplies"
+                    ? page.props.supplies
+                    : page.props.consigned;
+                
+                const updatedMRS = updatedData.find(mrs => mrs.mrs_no === selectedMRS.mrs_no);
+                
+                if (updatedMRS) {
+                    setSelectedMRS(updatedMRS);
+                    
+                    const newQuantities = {};
+                    updatedMRS.items.forEach(item => {
+                        newQuantities[item.id] = item.issued_quantity ?? item.issued_qty ?? 1;
+                    });
+                    setIssuedQuantities(newQuantities);
+                }
+                
+                closeReplaceModal();
+            },
+            onFinish: () => {
+                setIsProcessing(false);
+            }
+        });
+    };
 
     return (
         <AuthenticatedLayout>
@@ -422,7 +443,7 @@ const handleConfirmReplacement = (replacementItem) => {
                                     <th>MRS No</th>
                                     <th>Item Code</th>
                                     <th>Description</th>
-                                    <th>Detailed Description</th>
+                                    <th>Long Description</th>
                                     {activeMainTab === "consumable" && <th>Serial</th>}
                                     {activeMainTab === "consigned" && <th>Supplier</th>}
                                     <th>Quantity</th>
@@ -514,7 +535,7 @@ const handleConfirmReplacement = (replacementItem) => {
                                     <tr>
                                         <th>Item Code</th>
                                         <th>Description</th>
-                                        <th>Detailed Description</th>
+                                        <th>Long Description</th>
                                         {activeMainTab === "consumable" && <th>Serial</th>}
                                         {activeMainTab === "consigned" && <th>Supplier</th>}
                                         <th>Quantity</th>
@@ -661,7 +682,7 @@ const handleConfirmReplacement = (replacementItem) => {
                             <p className="font-semibold">{selectedItemForReplace.material_description}</p>
                         </div>
                         <div>
-                            <p className="text-sm text-gray-500">Detailed Description</p>
+                            <p className="text-sm text-gray-500">Long Description</p>
                             <p className="font-semibold">{selectedItemForReplace.detailed_description}</p>
                         </div>
                         {activeMainTab === "consumable" && (
@@ -722,7 +743,7 @@ const handleConfirmReplacement = (replacementItem) => {
                         <tr>
                             <th>Item Code</th>
                             <th>Material Description</th>
-                            <th>Detailed Description</th>
+                            <th>Long Description</th>
                             {activeMainTab === "consumable" && (
                                 <>
                                     <th>Serial</th>

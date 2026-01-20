@@ -22,5 +22,6 @@ Route::prefix($app_name)
     Route::get('/consigned/{id}/history', [ConsignedController::class, 'history'])->name('consigned.history');
     Route::get('/consigned/details/{id}/history', [ConsignedController::class, 'getDetailHistory'])->name('consigned.getDetailHistory');
 
+    Route::post('/consigned/import', [ConsignedController::class, 'import'])->name('consigned.import');
     
     });

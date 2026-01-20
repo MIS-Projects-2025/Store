@@ -8,15 +8,12 @@ export default function Consumable({ tableData, tableFilters }) {
     const [mainSearchQuery, setMainSearchQuery] = useState("");
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isSecondModalOpen, setIsSecondModalOpen] = useState(false);
-    const [isViewModalOpen, setIsViewModalOpen] = useState(false);
-    const [viewingItem, setViewingItem] = useState(null);
     const [isAddingToExisting, setIsAddingToExisting] = useState(false);
     const [existingConsumableId, setExistingConsumableId] = useState(null);
     const [isQuantityModalOpen, setIsQuantityModalOpen] = useState(false);
     const [quantitySearchQuery, setQuantitySearchQuery] = useState("");
     const [filteredItems, setFilteredItems] = useState([]);
     const [selectedItem, setSelectedItem] = useState(null);
-    const [quantityInput, setQuantityInput] = useState("");
     const [isAddingQuantity, setIsAddingQuantity] = useState(false);
     const [isSearching, setIsSearching] = useState(false);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -35,6 +32,8 @@ export default function Consumable({ tableData, tableFilters }) {
     const [isDetailHistoryModalOpen, setIsDetailHistoryModalOpen] = useState(false);
     const [detailHistoryData, setDetailHistoryData] = useState([]);
     const [detailHistoryItem, setDetailHistoryItem] = useState(null);
+    const [editingDetailId, setEditingDetailId] = useState(null);
+    const [editDetailFormData, setEditDetailFormData] = useState({});
 
     const handleDeleteDetailClick = (detail) => {
         setDetailToDelete(detail);
@@ -64,9 +63,6 @@ export default function Consumable({ tableData, tableFilters }) {
             onSuccess: () => {
                 alert('Detail deleted successfully');
                 handleCloseDeleteDetailModal();
-                if (viewingItem) {
-                    handleView(viewingItem.consumable_id);
-                }
             },
             onError: (errors) => {
                 console.error('Delete error:', errors);
@@ -140,25 +136,62 @@ export default function Consumable({ tableData, tableFilters }) {
         }
     };
 
-    const handleDeleteDetail = (detail) => {
-        if (!confirm(`Are you sure you want to delete item code: ${detail.item_code}?`)) {
+    const handleEditDetailClick = (detail) => {
+        setEditingDetailId(detail.id);
+        setEditDetailFormData({
+            item_code: detail.item_code || '',
+            detailed_description: detail.detailed_description || '',
+            serial: detail.serial || '',
+            bin_location: detail.bin_location || '',
+            quantity: detail.quantity || 0,
+            max: detail.max || 0,
+            min: detail.min || 0
+        });
+    };
+
+    const handleCancelEditDetail = () => {
+        setEditingDetailId(null);
+        setEditDetailFormData({});
+    };
+
+    const handleSaveEditDetail = (detail) => {
+        if (!editDetailFormData.item_code.trim()) {
+            alert("Item code is required");
             return;
         }
 
-        router.delete(route('consumable.destroyDetail', detail.id), {
+        router.put(route('consumable.bulkUpdateDetails'), {
+            details: [{
+                id: detail.id,
+                item_code: editDetailFormData.item_code,
+                detailed_description: editDetailFormData.detailed_description,
+                serial: editDetailFormData.serial,
+                bin_location: editDetailFormData.bin_location,
+                quantity: parseFloat(editDetailFormData.quantity) || 0,
+                max: parseFloat(editDetailFormData.max) || 0,
+                min: parseFloat(editDetailFormData.min) || 0
+            }]
+        }, {
             preserveState: true,
             preserveScroll: true,
             onSuccess: () => {
-                alert('Detail deleted successfully');
-                if (viewingItem) {
-                    handleView(viewingItem.consumable_id);
-                }
+                setEditingDetailId(null);
+                setEditDetailFormData({});
+                alert('Detail updated successfully!');
             },
             onError: (errors) => {
-                console.error('Delete error:', errors);
-                alert('Failed to delete detail: ' + (errors.error || 'Unknown error'));
+                console.error('Validation errors:', errors);
+                alert('Failed to save changes');
             }
         });
+    };
+
+    const handleEditDetailInputChange = (e) => {
+        const { name, value } = e.target;
+        setEditDetailFormData(prev => ({
+            ...prev,
+            [name]: value
+        }));
     };
 
     const handleDeleteClick = (item) => {
@@ -214,17 +247,6 @@ export default function Consumable({ tableData, tableFilters }) {
         price: ""
     });
     
-    const [editingItemId, setEditingItemId] = useState(null);
-    const [editFormData, setEditFormData] = useState({
-        material_description: "",
-        category: "",
-        uom: ""
-    });
-    
-    const [isEditing, setIsEditing] = useState(false);
-    const [editingDetails, setEditingDetails] = useState([]);
-    const [isSaving, setIsSaving] = useState(false);
-    
     const consumableItems = tableData?.data || [];
     const pagination = tableData?.pagination || {
         from: 0,
@@ -234,15 +256,6 @@ export default function Consumable({ tableData, tableFilters }) {
         last_page: 1,
         per_page: 10
     };
-
-    useEffect(() => {
-        if (viewingItem && viewingItem.details) {
-            setEditingDetails([...viewingItem.details.map(detail => ({
-                ...detail,
-                // Your consumable_details table doesn't have expiration, so removed that
-            }))]);
-        }
-    }, [viewingItem]);
 
     useEffect(() => {
         if (quantitySearchQuery.trim() === "") {
@@ -285,40 +298,30 @@ export default function Consumable({ tableData, tableFilters }) {
         const file = e.target.files[0];
         if (file) {
             setIsImporting(true);
-            setTimeout(() => setIsImporting(false), 2000);
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            router.post(route('consumable.import'), formData, {
+                onSuccess: () => {
+                    setIsImporting(false);
+                    alert('File imported successfully!');
+                    e.target.value = '';
+                },
+                onError: (errors) => {
+                    setIsImporting(false);
+                    alert('Import failed: ' + (errors.file || errors.error || 'Unknown error'));
+                    e.target.value = '';
+                },
+                onFinish: () => {
+                    setIsImporting(false);
+                }
+            });
         }
     };
 
     const handleClearSearch = () => {
         setMainSearchQuery("");
-    };
-
-    const handleView = async (consumableId) => {
-        try {
-            const response = await fetch(route('consumable.show', consumableId), {
-                headers: {
-                    'Accept': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
-            });
-            
-            if (response.ok) {
-                const data = await response.json();
-                setViewingItem(data.consumableItem);
-                setIsViewModalOpen(true);
-                setIsEditing(false);
-            }
-        } catch (error) {
-            console.error('Error fetching item details:', error);
-            alert('Failed to load item details');
-        }
-    };
-
-    const handleCloseViewModal = () => {
-        setIsViewModalOpen(false);
-        setViewingItem(null);
-        setIsEditing(false);
-        setEditingDetails([]);
     };
 
     const handleSearch = (e) => {
@@ -366,14 +369,14 @@ export default function Consumable({ tableData, tableFilters }) {
         });
     };
 
-    const handleAddItemToExisting = () => {
-        setExistingConsumableId(viewingItem.consumable_id);
+    const handleAddItemToExisting = (consumable) => {
+        setExistingConsumableId(consumable.consumable_id);
         setIsAddingToExisting(true);
         
         setFormData({
-            material_description: viewingItem.material_description,
-            category: viewingItem.category,
-            uom: viewingItem.uom,
+            material_description: consumable.material_description,
+            category: consumable.category,
+            uom: consumable.uom,
             item_code: "",
             detailed_description: "",
             serial: "",
@@ -384,7 +387,6 @@ export default function Consumable({ tableData, tableFilters }) {
             price: ""
         });
         
-        setIsViewModalOpen(false);
         setIsSecondModalOpen(true);
     };
 
@@ -419,13 +421,8 @@ export default function Consumable({ tableData, tableFilters }) {
             return;
         }
 
-        if (isAddingToExisting) {
-            setIsModalOpen(false);
-            setIsSecondModalOpen(true);
-        } else {
-            setIsModalOpen(false);
-            setIsSecondModalOpen(true);
-        }
+        setIsModalOpen(false);
+        setIsSecondModalOpen(true);
     };
 
     const handleCloseSecondModal = () => {
@@ -465,10 +462,6 @@ export default function Consumable({ tableData, tableFilters }) {
                 preserveScroll: true,
                 onSuccess: () => {
                     handleCloseSecondModal();
-                    if (viewingItem) {
-                        handleView(viewingItem.consumable_id);
-                        setIsViewModalOpen(true);
-                    }
                 },
                 onError: (errors) => {
                     console.error('Validation errors:', errors);
@@ -495,177 +488,11 @@ export default function Consumable({ tableData, tableFilters }) {
                 preserveScroll: true,
                 onSuccess: () => {
                     handleCloseSecondModal();
-                    setFormData({
-                        material_description: "",
-                        category: "",
-                        uom: ""
-                    });
                 },
                 onError: (errors) => {
                     console.error('Validation errors:', errors);
                 }
             });
-        }
-    };
-
-    const handleEditClick = (item) => {
-        setEditingItemId(item.consumable_id);
-        setEditFormData({
-            material_description: item.material_description,
-            category: item.category,
-            uom: item.uom
-        });
-    };
-
-    const handleCancelEdit = () => {
-        setEditingItemId(null);
-        setEditFormData({
-            material_description: "",
-            category: "",
-            uom: ""
-        });
-    };
-
-    const handleSaveEdit = (item) => {
-        if (!editFormData.material_description.trim() || !editFormData.category.trim() || !editFormData.uom.trim()) {
-            alert("Please fill in all fields");
-            return;
-        }
-
-        router.put(route('consumable.update', item.consumable_id), editFormData, {
-            preserveState: true,
-            preserveScroll: true,
-            onSuccess: () => {
-                setEditingItemId(null);
-                setEditFormData({
-                    material_description: "",
-                    category: "",
-                    uom: ""
-                });
-            },
-            onError: (errors) => {
-                console.error('Validation errors:', errors);
-                alert('Failed to update item');
-            }
-        });
-    };
-
-    const handleEditInputChange = (e) => {
-        const { name, value } = e.target;
-        setEditFormData(prev => ({
-            ...prev,
-            [name]: value
-        }));
-    };
-
-    const handleEdit = () => {
-        setIsEditing(true);
-    };
-
-    const handleCancelEditInModal = () => {
-        setIsEditing(false);
-        if (viewingItem && viewingItem.details) {
-            setEditingDetails([...viewingItem.details]);
-        }
-    };
-
-    const handleDetailChange = (index, field, value) => {
-        setEditingDetails(prev => {
-            const newDetails = [...prev];
-            newDetails[index] = {
-                ...newDetails[index],
-                [field]: value
-            };
-            return newDetails;
-        });
-    };
-
-const handleBulkSave = async () => {
-    if (!editingDetails.length) {
-        alert('No details to save');
-        return;
-    }
-    
-    setIsSaving(true);
-    
-    // Prepare the details data - only send the fields that exist in consumable_details table
-    const detailsToUpdate = editingDetails.map(detail => ({
-        id: detail.id,
-        item_code: detail.item_code || '',
-        detailed_description: detail.detailed_description || '',
-        serial: detail.serial || '',
-        bin_location: detail.bin_location || '',
-        quantity: parseFloat(detail.quantity) || 0,
-        max: parseFloat(detail.max) || 0,
-        min: parseFloat(detail.min) || 0
-    }));
-
-    console.log('Sending details to update:', detailsToUpdate); // Debug log
-    
-    router.put(route('consumable.bulkUpdateDetails'), {
-        details: detailsToUpdate
-    }, {
-        preserveState: true,
-        preserveScroll: true,
-        onSuccess: (page) => {
-            console.log('Update successful'); // Debug log
-            // Refresh the viewing item to get updated data
-            if (viewingItem) {
-                handleView(viewingItem.consumable_id);
-            }
-            setIsEditing(false);
-            alert('Details updated successfully!');
-        },
-        onError: (errors) => {
-            console.error('Validation errors:', errors);
-            // Show detailed error message
-            const errorMessages = Object.entries(errors)
-                .map(([key, value]) => `${key}: ${value}`)
-                .join('\n');
-            alert('Failed to save changes:\n' + errorMessages);
-        },
-        onFinish: () => {
-            setIsSaving(false);
-        }
-    });
-};
-
-    const renderCell = (detail, index, field) => {
-        if (!isEditing) {
-            switch(field) {
-                case 'quantity':
-                case 'max':
-                case 'min':
-                    return detail[field] || '0';
-                default:
-                    return detail[field] || '-';
-            }
-        } else {
-            const value = editingDetails[index]?.[field] || '';
-            
-            switch(field) {
-                case 'quantity':
-                case 'max':
-                case 'min':
-                    return (
-                        <input
-                            type="number"
-                            step="1"
-                            className="input input-bordered input-xs w-full"
-                            value={value}
-                            onChange={(e) => handleDetailChange(index, field, e.target.value)}
-                        />
-                    );
-                default:
-                    return (
-                        <input
-                            type="text"
-                            className="input input-bordered input-xs w-full"
-                            value={value}
-                            onChange={(e) => handleDetailChange(index, field, e.target.value)}
-                        />
-                    );
-            }
         }
     };
 
@@ -848,133 +675,235 @@ const handleBulkSave = async () => {
                     </div>
                 </div>
 
-                {/* Data Table */}
+                {/* Data Table - Flattened with Details */}
                 <div className="overflow-x-auto bg-base-100 rounded-lg shadow">
                     <table className="table table-zebra w-full">
                         <thead>
                             <tr>
+                                <th>Item Code</th>
                                 <th>Material Description</th>
+                                <th>Long Description</th>
+                                <th>Serial</th>
                                 <th>Category</th>
+                                <th>Bin Location</th>
+                                <th>Qty</th>
                                 <th>UOM</th>
+                                <th>Max</th>
+                                <th>Min</th>
                                 <th className="text-center">Action</th>
                             </tr>
                         </thead>
                         <tbody>
                             {consumableItems.length > 0 ? (
-                                consumableItems.map((item, index) => (
-                                    <tr key={item.consumable_id || index}>
-                                        <td>
-                                            {editingItemId === item.consumable_id ? (
-                                                <input
-                                                    type="text"
-                                                    name="material_description"
-                                                    className="input input-bordered input-sm w-full"
-                                                    value={editFormData.material_description}
-                                                    onChange={handleEditInputChange}
-                                                />
-                                            ) : (
-                                                item.material_description || '-'
-                                            )}
-                                        </td>
-                                        <td>
-                                            {editingItemId === item.consumable_id ? (
-                                                <input
-                                                    type="text"
-                                                    name="category"
-                                                    className="input input-bordered input-sm w-full"
-                                                    value={editFormData.category}
-                                                    onChange={handleEditInputChange}
-                                                />
-                                            ) : (
-                                                item.category || '-'
-                                            )}
-                                        </td>
-                                        <td>
-                                            {editingItemId === item.consumable_id ? (
-                                                <input
-                                                    type="text"
-                                                    name="uom"
-                                                    className="input input-bordered input-sm w-full"
-                                                    value={editFormData.uom}
-                                                    onChange={handleEditInputChange}
-                                                />
-                                            ) : (
-                                                item.uom || '-'
-                                            )}
-                                        </td>
-                                        <td className="text-center">
-                                            <div className="flex justify-center gap-2">
-                                                {editingItemId === item.consumable_id ? (
-                                                    <>
-                                                        <button 
-                                                            className="btn btn-sm btn-success"
-                                                            onClick={() => handleSaveEdit(item)}
+                                consumableItems.flatMap((item, itemIndex) => {
+                                    const details = item.details || [];
+                                    
+                                    if (details.length === 0) {
+                                        return (
+                                            <tr key={`empty-${item.consumable_id}`}>
+                                                <td colSpan="10" className="text-gray-500 italic">
+                                                    No details for {item.material_description}
+                                                </td>
+                                                <td className="text-center">
+                                                    <div className="flex justify-center gap-2">
+                                                        <button
+                                                            className="btn btn-sm btn-primary"
+                                                            title="Add Detail"
+                                                            onClick={() => handleAddItemToExisting(item)}
                                                         >
                                                             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 011.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                                                <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
                                                             </svg>
-                                                            Save
                                                         </button>
-                                                        <button 
-                                                            className="btn btn-sm btn-ghost"
-                                                            onClick={handleCancelEdit}
+                                                        <button
+                                                            onClick={() => handleDeleteClick(item)}
+                                                            className="btn btn-sm btn-ghost text-error"
+                                                            title="Delete Consumable"
                                                         >
                                                             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                                                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                                                <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
                                                             </svg>
-                                                            Cancel
                                                         </button>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <div className="flex gap-2 justify-center">
-                                                            <button
-                                                                className="btn btn-sm btn-ghost"
-                                                                title="View Details"
-                                                                onClick={() => handleView(item.consumable_id)}
-                                                            >
-                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                                    <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-                                                                    <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
-                                                                </svg>
-                                                            </button>
-                                                            <button
-                                                                className="btn btn-sm btn-ghost"
-                                                                title="View History"
-                                                                onClick={() => handleViewHistory(item)}
-                                                            >
-                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-                                                                </svg>
-                                                            </button>
-                                                            <button
-                                                                onClick={() => handleEditClick(item)}
-                                                                className="btn btn-sm btn-ghost"
-                                                                title="Edit"
-                                                            >
-                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                                                    <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                                                                </svg>
-                                                            </button>
-                                                            <button
-                                                                onClick={() => handleDeleteClick(item)}
-                                                                className="btn btn-sm btn-ghost text-error"
-                                                                title="Delete"
-                                                            >
-                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                                                    <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                                                                </svg>
-                                                            </button>
-                                                        </div>
-                                                    </>
-                                                )}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    }
+                                    
+                                    return details.map((detail, detailIndex) => {
+                                        const isEditing = editingDetailId === detail.id;
+                                        const isFirstDetail = detailIndex === 0;
+                                        
+                                        return (
+                                            <tr key={`${item.consumable_id}-${detail.id}`}>
+                                                <td>
+                                                    {isEditing ? (
+                                                        <input
+                                                            type="text"
+                                                            name="item_code"
+                                                            className="input input-bordered input-xs w-full"
+                                                            value={editDetailFormData.item_code}
+                                                            onChange={handleEditDetailInputChange}
+                                                        />
+                                                    ) : (
+                                                        detail.item_code || '-'
+                                                    )}
+                                                </td>
+                                                <td>{item.material_description || '-'}</td>
+                                                <td>
+                                                    {isEditing ? (
+                                                        <input
+                                                            type="text"
+                                                            name="detailed_description"
+                                                            className="input input-bordered input-xs w-full"
+                                                            value={editDetailFormData.detailed_description}
+                                                            onChange={handleEditDetailInputChange}
+                                                        />
+                                                    ) : (
+                                                        detail.detailed_description || '-'
+                                                    )}
+                                                </td>
+                                                <td>
+                                                    {isEditing ? (
+                                                        <input
+                                                            type="text"
+                                                            name="serial"
+                                                            className="input input-bordered input-xs w-full"
+                                                            value={editDetailFormData.serial}
+                                                            onChange={handleEditDetailInputChange}
+                                                        />
+                                                    ) : (
+                                                        detail.serial || '-'
+                                                    )}
+                                                </td>
+                                                <td>{item.category || '-'}</td>
+                                                <td>
+                                                    {isEditing ? (
+                                                        <input
+                                                            type="text"
+                                                            name="bin_location"
+                                                            className="input input-bordered input-xs w-full"
+                                                            value={editDetailFormData.bin_location}
+                                                            onChange={handleEditDetailInputChange}
+                                                        />
+                                                    ) : (
+                                                        detail.bin_location || '-'
+                                                    )}
+                                                </td>
+                                                <td>
+                                                    {isEditing ? (
+                                                        <input
+                                                            type="number"
+                                                            name="quantity"
+                                                            className="input input-bordered input-xs w-20"
+                                                            value={editDetailFormData.quantity}
+                                                            onChange={handleEditDetailInputChange}
+                                                        />
+                                                    ) : (
+                                                        detail.quantity || '0'
+                                                    )}
+                                                </td>
+                                                <td>{item.uom || '-'}</td>
+                                                <td>
+                                                    {isEditing ? (
+                                                        <input
+                                                            type="number"
+                                                            name="max"
+                                                            className="input input-bordered input-xs w-20"
+                                                            value={editDetailFormData.max}
+                                                            onChange={handleEditDetailInputChange}
+                                                        />
+                                                    ) : (
+                                                        detail.max || '0'
+                                                    )}
+                                                </td>
+                                                <td>
+                                                    {isEditing ? (
+                                                        <input
+                                                            type="number"
+                                                            name="min"
+                                                            className="input input-bordered input-xs w-20"
+                                                            value={editDetailFormData.min}
+                                                            onChange={handleEditDetailInputChange}
+                                                        />
+                                                    ) : (
+                                                        detail.min || '0'
+                                                    )}
+                                                </td>
+                                                <td>
+                                                    <div className="flex justify-center gap-1">
+                                                        {isEditing ? (
+                                                            <>
+                                                                <button 
+                                                                    className="btn btn-xs btn-success"
+                                                                    onClick={() => handleSaveEditDetail(detail)}
+                                                                    title="Save"
+                                                                >
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                                                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                                                    </svg>
+                                                                </button>
+                                                                <button 
+                                                                    className="btn btn-xs btn-ghost"
+                                                                    onClick={handleCancelEditDetail}
+                                                                    title="Cancel"
+                                                                >
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                                                                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                                                    </svg>
+                                                                </button>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                {isFirstDetail && (
+                                                                    <button
+                                                                        className="btn btn-xs btn-primary"
+                                                                        title="Add Detail to this Item"
+                                                                        onClick={() => handleAddItemToExisting(item)}
+                                                                    >
+                                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                                                                            <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                                                                        </svg>
+                                                                    </button>
+                                                                )}
+                                                                <button
+                                                                    className="btn btn-xs btn-ghost"
+                                                                    title="View Detail History"
+                                                                    onClick={() => handleViewDetailHistory(detail)}
+                                                                >
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                                                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                                                                    </svg>
+                                                                </button>
+                                                                <button
+                                                                    className="btn btn-xs btn-ghost"
+                                                                    title="Edit Detail"
+                                                                    onClick={() => handleEditDetailClick(detail)}
+                                                                >
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                                                                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                                                    </svg>
+                                                                </button>
+                                                                <button
+                                                                    className="btn btn-xs btn-ghost text-error"
+                                                                    title="Delete Detail"
+                                                                    onClick={() => handleDeleteDetailClick(detail)}
+                                                                >
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                                                                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                                                                    </svg>
+                                                                </button>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    });
+                                })
                             ) : (
                                 <tr>
-                                    <td colSpan="5" className="text-center py-8 text-gray-500">
+                                    <td colSpan="11" className="text-center py-8 text-gray-500">
                                         No consumable items found
                                     </td>
                                 </tr>
@@ -1126,168 +1055,6 @@ const handleBulkSave = async () => {
                 </div>
             )}
 
-{/* View Item Modal */}
-{isViewModalOpen && viewingItem && (
-    <div className="modal modal-open">
-        <div className="modal-box max-w-6xl">
-            <h3 className="font-bold text-lg mb-4">View Item Details</h3>
-            
-            {/* Item Info Card */}
-            <div className="card bg-base-200 shadow-md mb-6">
-                <div className="card-body">
-                    <h4 className="card-title text-base">Item Info</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-2">
-                        <div>
-                            <span className="text-sm font-semibold text-gray-600">ID:</span>
-                            <p className="text-sm mt-1">{viewingItem.consumable_id || '-'}</p>
-                        </div>
-                        <div>
-                            <span className="text-sm font-semibold text-gray-600">Material Description:</span>
-                            <p className="text-sm mt-1">{viewingItem.material_description || '-'}</p>
-                        </div>
-                        <div>
-                            <span className="text-sm font-semibold text-gray-600">Category:</span>
-                            <p className="text-sm mt-1">{viewingItem.category || '-'}</p>
-                        </div>
-                        <div>
-                            <span className="text-sm font-semibold text-gray-600">UOM:</span>
-                            <p className="text-sm mt-1">{viewingItem.uom || '-'}</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-
-            {/* Details Table */}
-            <div className="overflow-x-auto">
-                <div className="flex justify-between items-center mb-2">
-                    <h4 className="font-semibold">Consumable Details</h4>
-                    <div className="flex gap-2">
-                        <button 
-                            className="btn btn-sm btn-primary"
-                            onClick={handleAddItemToExisting}
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                                <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-                            </svg>
-                            Add Detail
-                        </button>
-                        
-                        {!isEditing ? (
-                            <button 
-                                className="btn btn-sm btn-secondary"
-                                onClick={handleEdit}
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                                    <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                                </svg>
-                                Edit Details
-                            </button>
-                        ) : (
-                            <>
-                                <button 
-                                    className="btn btn-sm btn-success"
-                                    onClick={handleBulkSave}
-                                    disabled={isSaving}
-                                >
-                                    {isSaving ? (
-                                        <>
-                                            <span className="loading loading-spinner loading-xs mr-1"></span>
-                                            Saving...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 011.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                            </svg>
-                                            Save All Changes
-                                        </>
-                                    )}
-                                </button>
-                                <button 
-                                    className="btn btn-sm btn-ghost"
-                                    onClick={handleCancelEditInModal}
-                                >
-                                    Cancel
-                                </button>
-                            </>
-                        )}
-                    </div>
-                </div>
-                <table className="table table-zebra w-full table-sm">
-                    <thead>
-                        <tr>
-                            <th>Item Code</th>
-                            <th>Detailed Description</th>
-                            <th>Serial</th>
-                            <th>Bin Location</th>
-                            <th>Qty</th>
-                            <th>Max</th>
-                            <th>Min</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {editingDetails.length > 0 ? (
-                            editingDetails.map((detail, index) => (
-                                <tr key={detail.id || index}>
-                                    <td>{renderCell(detail, index, 'item_code')}</td>
-                                    <td>{renderCell(detail, index, 'detailed_description')}</td>
-                                    <td>{renderCell(detail, index, 'serial')}</td>
-                                    <td>{renderCell(detail, index, 'bin_location')}</td>
-                                    <td>{renderCell(detail, index, 'quantity')}</td>
-                                    <td>{renderCell(detail, index, 'max')}</td>
-                                    <td>{renderCell(detail, index, 'min')}</td>
-                                    <td>
-                                        {!isEditing && (
-                                            <div className="flex gap-2">
-                                                <button
-                                                    className="btn btn-sm btn-ghost"
-                                                    title="View History"
-                                                    onClick={() => handleViewDetailHistory(detail)}
-                                                >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-                                                    </svg>
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDeleteDetailClick(detail)}
-                                                    className="btn btn-sm btn-ghost text-error"
-                                                    title="Delete"
-                                                >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                                                    </svg>
-                                                </button>
-                                            </div>
-                                        )}
-                                    </td>
-                                </tr>
-                            ))
-                        ) : (
-                            <tr>
-                                <td colSpan="8" className="text-center py-4 text-gray-500">
-                                    No details found
-                                </td>
-                            </tr>
-                        )}
-                    </tbody>
-                </table>
-            </div>
-
-            {/* Modal Footer */}
-            <div className="modal-action">
-                <button 
-                    className="btn btn-ghost"
-                    onClick={handleCloseViewModal}
-                >
-                    Close
-                </button>
-            </div>
-        </div>
-    </div>
-)}
-
             {/* Second Modal - Step 2: Additional Item Details */}
             {isSecondModalOpen && (
                 <div className="modal modal-open">
@@ -1328,12 +1095,12 @@ const handleBulkSave = async () => {
 
                             <div className="form-control">
                                 <label className="label">
-                                    <span className="label-text">Detailed Description</span>
+                                    <span className="label-text">Long Description</span>
                                 </label>
                                 <input 
                                     type="text" 
                                     name="detailed_description"
-                                    placeholder="Enter detailed description" 
+                                    placeholder="Enter Long Description" 
                                     className="input input-bordered w-full"
                                     value={formData.detailed_description}
                                     onChange={handleInputChange}

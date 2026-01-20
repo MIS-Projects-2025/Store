@@ -15,6 +15,9 @@ Route::prefix($app_name)
         
         // IMPORTANT: Specific routes MUST come BEFORE parameterized routes
         
+        // Import functionality - MOVED UP HERE
+        Route::post('/consumable/import', [ConsumableController::class, 'import'])->name('consumable.import');
+        
         // Search routes
         Route::get('/consumable/search/details', [ConsumableController::class, 'searchDetails'])->name('consumable.searchDetails');
         
@@ -22,7 +25,7 @@ Route::prefix($app_name)
         Route::post('/consumable', [ConsumableController::class, 'store'])->name('consumable.store');
         Route::post('/consumable/add-detail', [ConsumableController::class, 'addDetail'])->name('consumable.addDetail');
         
-        // Update operations (specific paths) - MOVE THESE BEFORE {id} ROUTES
+        // Update operations (specific paths)
         Route::put('/consumable/bulk-update-details', [ConsumableController::class, 'bulkUpdateDetails'])->name('consumable.bulkUpdateDetails');
         
         // Quantity operations (specific paths)
@@ -42,7 +45,7 @@ Route::prefix($app_name)
         // History for main consumable
         Route::get('/consumable/{id}/history', [ConsumableController::class, 'getHistory'])->name('consumable.history');
         
-        // Update consumable (this was catching bulk-update-details!)
+        // Update consumable
         Route::put('/consumable/{id}', [ConsumableController::class, 'update'])->name('consumable.update');
         
         // Delete consumable

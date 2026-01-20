@@ -15,6 +15,7 @@ use App\Models\Supply;
 use App\Models\Consigned;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use App\Events\MaterialIssuanceUpdated;
 
 class MaterialIssuanceController extends Controller
 {
@@ -198,11 +199,32 @@ class MaterialIssuanceController extends Controller
             ];
         })->values();
 
+            // Add pending count at the end before returning
+    $pendingConsumables = ConsumableCart::where('approver_status', 'approved')
+        ->where('mrs_status', 'Pending')
+        ->distinct('mrs_no')
+        ->count('mrs_no');
+
+    $pendingSupplies = SuppliesCart::where('approver_status', 'approved')
+        ->where('mrs_status', 'Pending')
+        ->distinct('mrs_no')
+        ->count('mrs_no');
+
+    $pendingConsigned = ConsignedCart::whereNotNull('mrs_status')
+        ->where('mrs_status', 'Pending')
+        ->distinct('mrs_no')
+        ->count('mrs_no');
+
+    $totalPendingCount = $pendingConsumables + $pendingSupplies + $pendingConsigned;
+
+
         return Inertia::render('MaterialIssuance', [
             'consumables' => $consumables,
             'supplies' => $supplies,
             'consigned' => $consigned,
+            'pendingCount' => $totalPendingCount,
         ]);
+        
     }
 
     // ==================== CONSUMABLE METHODS ====================
@@ -222,6 +244,9 @@ class MaterialIssuanceController extends Controller
                 'mrs_status' => $request->status,
                 'issued_by' => $issuedBy
             ]);
+
+        // Broadcast the update
+        broadcast(new MaterialIssuanceUpdated('consumable', 'status_update', $request->mrs_no));
 
         return back()->with('success', 'Status updated successfully');
     }
@@ -261,6 +286,8 @@ class MaterialIssuanceController extends Controller
             }
         });
 
+        broadcast(new MaterialIssuanceUpdated('consumable', 'qty_updated', $request->mrs_no));
+
         return back()->with('success', 'Items ready for pick up and inventory updated');
     }
 
@@ -272,6 +299,8 @@ class MaterialIssuanceController extends Controller
             ->where('approver_status', 'approved')
             ->where('mrs_status', 'For Pick Up')
             ->update(['mrs_status' => 'Delivered']);
+
+        broadcast(new MaterialIssuanceUpdated('consumable', 'delivered', $request->mrs_no));    
 
         return back()->with('success', 'Items marked as delivered');
     }
@@ -305,6 +334,8 @@ class MaterialIssuanceController extends Controller
                 ]);
             }
         });
+
+        broadcast(new MaterialIssuanceUpdated('consumable', 'item_returned', $request->mrs_no));
 
         return back()->with('success', 'Item returned successfully and inventory updated');
     }
@@ -427,6 +458,8 @@ public function replaceItemConsumable(Request $request)
         }
     });
 
+    broadcast(new MaterialIssuanceUpdated('consumable', 'item_replaced', $request->mrs_no));
+
     return $this->getUpdatedData('consumable');
 }
 
@@ -447,6 +480,8 @@ public function replaceItemConsumable(Request $request)
                 'mrs_status' => $request->status,
                 'issued_by' => $issuedBy
             ]);
+
+        broadcast(new MaterialIssuanceUpdated('supplies', 'status_update', $request->mrs_no));
 
         return back()->with('success', 'Status updated successfully');
     }
@@ -486,6 +521,8 @@ public function replaceItemConsumable(Request $request)
             }
         });
 
+        broadcast(new MaterialIssuanceUpdated('supplies', 'qty_updated', $request->mrs_no));
+
         return back()->with('success', 'Items ready for pick up and inventory updated');
     }
 
@@ -497,6 +534,8 @@ public function replaceItemConsumable(Request $request)
             ->where('approver_status', 'approved')
             ->where('mrs_status', 'For Pick Up')
             ->update(['mrs_status' => 'Delivered']);
+
+        broadcast(new MaterialIssuanceUpdated('supplies', 'delivered', $request->mrs_no));
 
         return back()->with('success', 'Items marked as delivered');
     }
@@ -528,6 +567,8 @@ public function replaceItemConsumable(Request $request)
                 $supplyDetail->update(['qty' => $supplyDetail->qty + $cartItem->issued_qty]);
             }
         });
+
+        broadcast(new MaterialIssuanceUpdated('supplies', 'item_returned', $request->mrs_no));
 
         return back()->with('success', 'Item returned successfully and inventory updated');
     }
@@ -645,6 +686,8 @@ public function replaceItemSupplies(Request $request)
         }
     });
 
+    broadcast(new MaterialIssuanceUpdated('supplies', 'item_replaced', $request->mrs_no));
+
     return $this->getUpdatedData('supplies');
 }
 
@@ -664,6 +707,8 @@ public function replaceItemSupplies(Request $request)
                 'mrs_status' => $request->status,
                 'issued_by' => $issuedBy
             ]);
+
+        broadcast(new MaterialIssuanceUpdated('supplies', 'status_update', $request->mrs_no));
 
         return back()->with('success', 'Status updated successfully');
     }
@@ -704,6 +749,8 @@ public function replaceItemSupplies(Request $request)
             }
         });
 
+        broadcast(new MaterialIssuanceUpdated('consigned', 'qty_updated', $request->mrs_no));
+
         return back()->with('success', 'Items ready for pick up and inventory updated');
     }
 
@@ -714,6 +761,8 @@ public function replaceItemSupplies(Request $request)
         ConsignedCart::where('mrs_no', $request->mrs_no)
             ->where('mrs_status', 'For Pick Up')
             ->update(['mrs_status' => 'Delivered']);
+
+        broadcast(new MaterialIssuanceUpdated('consigned', 'delivered', $request->mrs_no));
 
         return back()->with('success', 'Items marked as delivered');
     }
@@ -745,6 +794,8 @@ public function replaceItemSupplies(Request $request)
                 $consignedDetail->update(['qty' => $consignedDetail->qty + $cartItem->issued_qty]);
             }
         });
+
+        broadcast(new MaterialIssuanceUpdated('consigned', 'item_returned', $request->mrs_no));
 
         return back()->with('success', 'Item returned successfully and inventory updated');
     }
@@ -782,7 +833,9 @@ public function getReplacementItemsConsigned(Request $request)
             ];
         });
 
-    return $this->returnWithAllData($replacementItems);
+        broadcast(new MaterialIssuanceUpdated('consigned', 'replacement_items', $request->mrs_no));
+
+        return $this->returnWithAllData($replacementItems);
 }
 
 public function replaceItemConsigned(Request $request)
@@ -881,6 +934,8 @@ public function replaceItemConsigned(Request $request)
             ]);
         }
     });
+
+    broadcast(new MaterialIssuanceUpdated('consigned', 'item_replaced', $request->mrs_no));
 
     return $this->getUpdatedData('consigned');
 }
@@ -1193,5 +1248,31 @@ private function getUpdatedData($type)
 
         return back()->with(['consigned' => $consigned, 'success' => 'Item replaced successfully']);
     }
+}
+public function getPendingCount()
+{
+    $pendingConsumables = ConsumableCart::where('approver_status', 'approved')
+        ->where('mrs_status', 'Pending')
+        ->distinct('mrs_no')
+        ->count('mrs_no');
+
+    $pendingSupplies = SuppliesCart::where('approver_status', 'approved')
+        ->where('mrs_status', 'Pending')
+        ->distinct('mrs_no')
+        ->count('mrs_no');
+
+    $pendingConsigned = ConsignedCart::whereNotNull('mrs_status')
+        ->where('mrs_status', 'Pending')
+        ->distinct('mrs_no')
+        ->count('mrs_no');
+
+    $totalPending = $pendingConsumables + $pendingSupplies + $pendingConsigned;
+
+    return response()->json([
+        'total' => $totalPending,
+        'consumables' => $pendingConsumables,
+        'supplies' => $pendingSupplies,
+        'consigned' => $pendingConsigned,
+    ]);
 }
 }

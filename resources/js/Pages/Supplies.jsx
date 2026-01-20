@@ -105,6 +105,7 @@ const groupSupplies = (supplies) => {
 // ---------------- MAIN COMPONENT ----------------
 export default function Supplies({ supplies, suppliesDetails, suppliesHistory, suppliesDetailsHistory }) {
     const groupedSupplies = groupSupplies(supplies);
+    const [searchTerm, setSearchTerm] = useState('');
     const [isViewDetailsModalOpen, setIsViewDetailsModalOpen] = useState(false);
     const [isAddQuantityModalOpen, setIsAddQuantityModalOpen] = useState(false);
     const [isAddMaterialModalOpen, setIsAddMaterialModalOpen] = useState(false);
@@ -121,27 +122,64 @@ export default function Supplies({ supplies, suppliesDetails, suppliesHistory, s
     const [historyMaterial, setHistoryMaterial] = useState(null);
     const [selectedDetailForHistory, setSelectedDetailForHistory] = useState(null);
     const [quantitiesToAdd, setQuantitiesToAdd] = useState({});
+    const [isImporting, setIsImporting] = useState(false);
 
-    const getHistoryForDetail = () => {
-        if (!selectedDetailForHistory) return [];
-        return suppliesDetailsHistory.filter(item => 
-            item.item_code === selectedDetailForHistory.itemCode &&
-            item.supplies_no === selectedDetailForHistory.supplies_no
-        ).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    const handleImport = () => {
+    document.getElementById('supplies-file-input').click();
     };
 
-const handleDeleteDetail = (itemCode, supplies_no) => {
-    if (confirm(`Are you sure you want to delete this detail? Item Code: ${itemCode}, Supply No: ${supplies_no}`)) {
-        router.delete(route('supplies.details.destroy', [supplies_no, itemCode]), {
-            onSuccess: () => {
-                alert('Detail deleted successfully!');
-            },
-            onError: (errors) => {
-                alert('Failed to delete detail: ' + Object.values(errors).join(', '));
-            }
-        });
-    }
-};
+    const handleFileChange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            setIsImporting(true);
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            router.post(route('supplies.import'), formData, {
+                onSuccess: () => {
+                    setIsImporting(false);
+                    alert('File imported successfully!');
+                    e.target.value = '';
+                },
+                onError: (errors) => {
+                    setIsImporting(false);
+                    alert('Import failed: ' + (errors.file || errors.error || 'Unknown error'));
+                    e.target.value = '';
+                },
+                onFinish: () => {
+                    setIsImporting(false);
+                }
+            });
+        }
+    };
+
+    // Filter supplies based on search term
+    const filteredSupplies = groupedSupplies.filter(row => 
+        row.material_description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        row.uom.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+        const getHistoryForDetail = () => {
+            if (!selectedDetailForHistory) return [];
+            return suppliesDetailsHistory.filter(item => 
+                item.item_code === selectedDetailForHistory.itemCode &&
+                item.supplies_no === selectedDetailForHistory.supplies_no
+            ).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        };
+
+    const handleDeleteDetail = (itemCode, supplies_no) => {
+        if (confirm(`Are you sure you want to delete this detail? Item Code: ${itemCode}, Supply No: ${supplies_no}`)) {
+            router.delete(route('supplies.details.destroy', [supplies_no, itemCode]), {
+                onSuccess: () => {
+                    alert('Detail deleted successfully!');
+                },
+                onError: (errors) => {
+                    alert('Failed to delete detail: ' + Object.values(errors).join(', '));
+                }
+            });
+        }
+    };
 
     const openHistoryModal = (row) => {
         console.log('Opening history for material:', row); // Debug log
@@ -478,12 +516,33 @@ const handleSaveQuantities = () => {
                 <div className="flex justify-between items-center">
                     <h1 className="text-2xl font-bold">Supplies</h1>
                     <div className="flex gap-2">
-                        <button className="btn btn-info">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                                <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                            </svg>
-                            Import Excel
-                        </button>
+                    <button 
+                        className="btn btn-info"
+                        disabled={isImporting}
+                        onClick={handleImport}
+                    >
+                        {isImporting ? (
+                            <>
+                                <span className="loading loading-spinner loading-sm mr-2"></span>
+                                Importing...
+                            </>
+                        ) : (
+                            <>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                                </svg>
+                                Import Excel
+                            </>
+                        )}
+                    </button>
+
+                    <input
+                        id="supplies-file-input"
+                        type="file"
+                        accept=".xlsx,.xls,.csv"
+                        className="hidden"
+                        onChange={handleFileChange}
+                    />
                         <button className="btn btn-secondary" onClick={openAddQuantityModal}>
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
                                 <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
@@ -501,8 +560,18 @@ const handleSaveQuantities = () => {
 
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div className="flex gap-2 w-full md:w-auto">
-                        <input type="text" placeholder="Search consumables..." className="input input-bordered w-full md:w-64" />
-                        <button className="btn btn-ghost btn-circle" title="Clear search">
+                        <input 
+                            type="text" 
+                            placeholder="Search consumables..." 
+                            className="input input-bordered w-full md:w-64"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                        />
+                        <button 
+                            className="btn btn-ghost btn-circle" 
+                            title="Clear search"
+                            onClick={() => setSearchTerm('')}
+                        >
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                                 <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
                             </svg>
@@ -520,9 +589,11 @@ const handleSaveQuantities = () => {
                             </select>
                             <span className="text-sm">entries</span>
                         </div>
-                        <div className="text-sm">Showing {supplies.length} entries</div>
+                        <div className="text-sm">Showing {filteredSupplies.length} of {groupedSupplies.length} entries</div>
                     </div>
                 </div>
+
+                
 
                 <div className="overflow-x-auto bg-base-100 rounded-box shadow">
                     <table className="table table-zebra w-full">
@@ -534,7 +605,7 @@ const handleSaveQuantities = () => {
                             </tr>
                         </thead>
                         <tbody>
-                            {groupedSupplies.map((row, idx) => {
+                            {filteredSupplies.map((row, idx) => {
                                 const isEditing = editingRowId === (row.material_description + '-' + row.uom);
                                 
                                 return (
@@ -672,7 +743,7 @@ const handleSaveQuantities = () => {
                                 <thead>
                                     <tr>
                                         <th>Item Code</th>
-                                        <th>Detailed Description</th>
+                                        <th>Long Description</th>
                                         <th>Qty</th>
                                         <th>Min</th>
                                         <th>Max</th>
@@ -944,7 +1015,7 @@ const handleSaveQuantities = () => {
                                     <input
                                         type="text"
                                         className="input input-bordered w-full"
-                                        placeholder="Enter detailed description"
+                                        placeholder="Enter Long Description"
                                         id="detailDescriptionInput"
                                     />
                                 </div>

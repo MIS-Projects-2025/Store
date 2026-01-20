@@ -7,18 +7,32 @@ use App\Models\SuppliesCart;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
+use App\Events\MaterialIssuanceUpdated;
 
 class ApprovalController extends Controller
 {
     public function index(Request $request)
     {
-        // Get unique supplies requests grouped by MRS number - ONLY PENDING
-        $suppliesData = SuppliesCart::select('mrs_no', 'order_date', 'emp_name', 'approver_status')
+        // Get the current logged-in user's employee name from session
+        $empData = session('emp_data');
+        $currentUserName = $empData['emp_name'] ?? null;
+        
+        // If no employee name in session, return empty data or redirect
+        if (!$currentUserName) {
+            return Inertia::render('Approval', [
+                'suppliesData' => [],
+                'sparePartsData' => [],
+            ]);
+        }
+        
+        // Get unique supplies requests grouped by MRS number - ONLY PENDING and matching approver
+        $suppliesData = SuppliesCart::select('mrs_no', 'order_date', 'emp_name', 'approver_status', 'approver')
             ->where(function($query) {
                 $query->where('approver_status', 'pending')
-                      ->orWhereNull('approver_status')
-                      ->orWhere('approver_status', '');
+                    ->orWhereNull('approver_status')
+                    ->orWhere('approver_status', '');
             })
+            ->where('approver', $currentUserName) // Filter by current user as approver
             ->distinct()
             ->orderBy('order_date', 'desc')
             ->get()
@@ -33,13 +47,14 @@ class ApprovalController extends Controller
             })
             ->values();
 
-        // Get unique consumable/spare parts requests grouped by MRS number - ONLY PENDING
-        $sparePartsData = ConsumableCart::select('mrs_no', 'order_date', 'emp_name', 'approver_status')
+        // Get unique consumable/spare parts requests grouped by MRS number - ONLY PENDING and matching approver
+        $sparePartsData = ConsumableCart::select('mrs_no', 'order_date', 'emp_name', 'approver_status', 'approver')
             ->where(function($query) {
                 $query->where('approver_status', 'pending')
-                      ->orWhereNull('approver_status')
-                      ->orWhere('approver_status', '');
+                    ->orWhereNull('approver_status')
+                    ->orWhere('approver_status', '');
             })
+            ->where('approver', $currentUserName) // Filter by current user as approver
             ->distinct()
             ->orderBy('order_date', 'desc')
             ->get()
@@ -64,36 +79,50 @@ class ApprovalController extends Controller
     {
         $mrsNo = $request->query('mrs_no');
         $type = $request->query('type');
+        
+        // Get the current logged-in user's employee name from session
+        $empData = session('emp_data');
+        $currentUserName = $empData['emp_name'] ?? null;
 
         if (!$mrsNo || !$type) {
             return back()->withErrors(['error' => 'Missing required parameters']);
         }
 
-        // Determine which model to use based on type - ONLY PENDING ITEMS
+        if (!$currentUserName) {
+            return back()->withErrors(['error' => 'Employee data not found in session']);
+        }
+
+        // Determine which model to use based on type - ONLY PENDING ITEMS for current approver
         if ($type === 'supplies') {
             $items = SuppliesCart::where('mrs_no', $mrsNo)
+                ->where('approver', $currentUserName)
                 ->where(function($query) {
                     $query->where('approver_status', 'pending')
-                          ->orWhereNull('approver_status')
-                          ->orWhere('approver_status', '');
+                        ->orWhereNull('approver_status')
+                        ->orWhere('approver_status', '');
                 })
                 ->get();
-            $header = SuppliesCart::where('mrs_no', $mrsNo)->first();
+            $header = SuppliesCart::where('mrs_no', $mrsNo)
+                ->where('approver', $currentUserName)
+                ->first();
         } else if ($type === 'spareParts') {
             $items = ConsumableCart::where('mrs_no', $mrsNo)
+                ->where('approver', $currentUserName)
                 ->where(function($query) {
                     $query->where('approver_status', 'pending')
-                          ->orWhereNull('approver_status')
-                          ->orWhere('approver_status', '');
+                        ->orWhereNull('approver_status')
+                        ->orWhere('approver_status', '');
                 })
                 ->get();
-            $header = ConsumableCart::where('mrs_no', $mrsNo)->first();
+            $header = ConsumableCart::where('mrs_no', $mrsNo)
+                ->where('approver', $currentUserName)
+                ->first();
         } else {
             return back()->withErrors(['error' => 'Invalid type']);
         }
 
         if (!$header) {
-            return back()->withErrors(['error' => 'Request not found']);
+            return back()->withErrors(['error' => 'Request not found or you are not the approver']);
         }
 
         // Format the response
@@ -133,7 +162,7 @@ class ApprovalController extends Controller
         ]);
     }
 
-    public function approveItems(Request $request)
+public function approveItems(Request $request)
     {
         $request->validate([
             'item_ids' => 'required|array',
@@ -147,16 +176,36 @@ class ApprovalController extends Controller
 
             $itemIds = $request->item_ids;
             $type = $request->type;
+            $mrsNo = $request->mrs_no;
+            
+            // Initialize broadcastType
+            $broadcastType = 'consumable'; // Default value
 
             if ($type === 'supplies') {
                 SuppliesCart::whereIn('id', $itemIds)
                     ->update(['approver_status' => 'approved']);
-            } else {
+                
+                $broadcastType = 'supplies';
+            } else if ($type === 'spareParts') {
                 ConsumableCart::whereIn('id', $itemIds)
                     ->update(['approver_status' => 'approved']);
+                
+                $broadcastType = 'consumable';
             }
 
             DB::commit();
+
+            // 🔥 BROADCAST THE EVENT
+            broadcast(new MaterialIssuanceUpdated(
+                $broadcastType,
+                'approved',
+                $mrsNo,
+                'approved',
+                [
+                    'item_count' => count($itemIds),
+                    'approver' => session('emp_data.emp_name', 'Unknown'),
+                ]
+            ));
 
             return redirect()->route('approval')
                 ->with('success', 'Items approved successfully');
@@ -186,24 +235,37 @@ class ApprovalController extends Controller
 
             $itemIds = $request->item_ids;
             $type = $request->type;
+            $mrsNo = $request->mrs_no;
+            
+            // Initialize broadcastType
+            $broadcastType = 'consumable'; // Default value
 
             if ($type === 'supplies') {
                 SuppliesCart::whereIn('id', $itemIds)
-                    ->update([
-                        'approver_status' => 'rejected',
-                        // If you have a rejection_reason column, uncomment this:
-                        // 'rejection_reason' => $request->reason
-                    ]);
-            } else {
+                    ->update(['approver_status' => 'rejected']);
+                
+                $broadcastType = 'supplies';
+            } else if ($type === 'spareParts') {
                 ConsumableCart::whereIn('id', $itemIds)
-                    ->update([
-                        'approver_status' => 'rejected',
-                        // If you have a rejection_reason column, uncomment this:
-                        // 'rejection_reason' => $request->reason
-                    ]);
+                    ->update(['approver_status' => 'rejected']);
+                
+                $broadcastType = 'consumable';
             }
 
             DB::commit();
+
+            // 🔥 BROADCAST THE EVENT
+            broadcast(new MaterialIssuanceUpdated(
+                $broadcastType,
+                'rejected',
+                $mrsNo,
+                'rejected',
+                [
+                    'item_count' => count($itemIds),
+                    'reason' => $request->reason,
+                    'approver' => session('emp_data.emp_name', 'Unknown'),
+                ]
+            ));
 
             return redirect()->route('approval')
                 ->with('success', 'Items rejected successfully');

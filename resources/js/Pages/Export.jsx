@@ -530,7 +530,7 @@ export default function Export({ tableData, tableFilters }) {
                                     <tr>
                                         <th>Item Code</th>
                                         <th>Material Description</th>
-                                        <th>Detailed Description</th>
+                                        <th>Long Description</th>
                                         <th>Serial</th>
                                         <th>Category</th>
                                         <th>Bin Location</th>
@@ -648,7 +648,7 @@ export default function Export({ tableData, tableFilters }) {
                                         <th>Issued By</th>
                                         <th>Item Code</th>
                                         <th>Material Description</th>
-                                        <th>Detailed Description</th>
+                                        <th>Long Description</th>
                                         <th>Serial</th>
                                         <th>Request Qty</th>
                                         <th>Issued Qty</th>
@@ -841,7 +841,7 @@ export default function Export({ tableData, tableFilters }) {
                                     <tr>
                                         <th>Item Code</th>
                                         <th>Material Description</th>
-                                        <th>Detailed Description</th>
+                                        <th>Long Description</th>
                                         <th>Quantity</th>
                                         <th>UOM</th>
                                         <th>Minimum</th>
@@ -960,7 +960,7 @@ export default function Export({ tableData, tableFilters }) {
                                         <th>Issued By</th>
                                         <th>Item Code</th>
                                         <th>Material Description</th>
-                                        <th>Detailed Description</th>
+                                        <th>Long Description</th>
                                         <th>Request Qty</th>
                                         <th>Issued Qty</th>
                                         <th>Remarks</th>

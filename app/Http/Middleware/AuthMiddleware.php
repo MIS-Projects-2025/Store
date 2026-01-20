@@ -11,10 +11,10 @@ class AuthMiddleware
     public function handle(Request $request, Closure $next)
     {
         // Priority: query key → cookie → session token -> for deferent Server not 2.221
-        //$token = $request->query('key') ?? session('emp_data.token');
+        $token = $request->query('key') ?? session('emp_data.token');
 
         // Priority: query key → cookie → session token
-        $token = $request->query('key') ?? $_COOKIE['sso_token'] ?? null;
+        // $token = $request->query('key') ?? $_COOKIE['sso_token'] ?? null;
 
         // Redirect if no token provided
         if (!$token) {

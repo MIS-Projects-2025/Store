@@ -1,6 +1,6 @@
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout";
 import { Head, router } from "@inertiajs/react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function Approval({ suppliesData = [], sparePartsData = [] }) {
     const [activeTab, setActiveTab] = useState("supplies");
@@ -9,6 +9,78 @@ export default function Approval({ suppliesData = [], sparePartsData = [] }) {
     const [selectedItems, setSelectedItems] = useState([]);
     const [loading, setLoading] = useState(false);
     const [processing, setProcessing] = useState(false);
+
+    // ==================== REAL-TIME BROADCASTING ====================
+    useEffect(() => {
+        // Check if Echo is available
+        if (typeof window.Echo === 'undefined') {
+            console.error('Laravel Echo is not initialized');
+            return;
+        }
+
+        console.log('Setting up Echo listener for material-approval channel');
+
+        // Listen to the material-approval channel
+        const channel = window.Echo.channel('material-approval');
+        
+        channel.listen('.material.updated', (event) => {
+            console.log('✅ Material updated event received in Approval:', event);
+            
+            // Check if this is a new order creation event
+            if (event.action === 'created') {
+                console.log(`📦 New ${event.type} order created: ${event.mrs_no}`);
+                
+                // Force reload the page data to show new items
+                router.reload({
+                    only: ['suppliesData', 'sparePartsData'],
+                    preserveState: true,
+                    preserveScroll: true,
+                    onSuccess: () => {
+                        console.log('✅ Data reloaded successfully');
+                    },
+                    onError: (errors) => {
+                        console.error('❌ Error reloading data:', errors);
+                    }
+                });
+            }
+            
+            // Handle approval/rejection events
+            if (event.action === 'approved' || event.action === 'rejected') {
+                console.log(`${event.action === 'approved' ? '✅' : '❌'} Items ${event.action}: ${event.mrs_no}`);
+                
+                // Reload to update the list
+                router.reload({
+                    only: ['suppliesData', 'sparePartsData'],
+                    preserveState: true,
+                    preserveScroll: true,
+                });
+            }
+        });
+
+        // Error handling
+        channel.error((error) => {
+            console.error('❌ Echo channel error:', error);
+        });
+
+        // Connection status
+        window.Echo.connector.pusher.connection.bind('connected', () => {
+            console.log('✅ Pusher connected');
+        });
+
+        window.Echo.connector.pusher.connection.bind('disconnected', () => {
+            console.log('⚠️ Pusher disconnected');
+        });
+
+        window.Echo.connector.pusher.connection.bind('error', (err) => {
+            console.error('❌ Pusher connection error:', err);
+        });
+
+        // Cleanup on unmount
+        return () => {
+            console.log('Cleaning up Echo listener');
+            window.Echo.leave('material-approval');
+        };
+    }, []); // Empty dependency array - only run once on mount
 
     const getStatusBadge = (status) => {
         const badges = {
@@ -280,7 +352,7 @@ export default function Approval({ suppliesData = [], sparePartsData = [] }) {
                                         </th>
                                         <th>Item Code</th>
                                         <th>Material Description</th>
-                                        <th>Detailed Description</th>
+                                        <th>Long Description</th>
                                         <th>Quantity</th>
                                         <th>UOM</th>
                                         <th>Request Qty</th>

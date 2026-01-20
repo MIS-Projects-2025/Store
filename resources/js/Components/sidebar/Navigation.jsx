@@ -1,20 +1,24 @@
 import Dropdown from "@/Components/sidebar/Dropdown";
 import SidebarLink from "@/Components/sidebar/SidebarLink";
-import { usePage } from "@inertiajs/react";
-import { 
-  HiSquares2X2, 
-  HiFolderOpen, 
-  HiCube, 
-  HiArchiveBox, 
-  HiClipboardDocumentList,
-  HiDocumentArrowUp,
-  HiDocumentArrowDown,
+import { usePage, router } from "@inertiajs/react";
+import { useState, useEffect } from "react";
+import {
+  HiSquares2X2,
+  HiFolder,
+  HiCube,
+  HiInboxStack,
+  HiClipboard,
+  HiArrowUpTray,
+  HiArrowDownTray,
   HiShoppingCart,
-  HiCheckBadge
+  HiCheckCircle,
+  HiUsers,
+  HiUserGroup,
 } from "react-icons/hi2";
 
 export default function NavLinks() {
     const { emp_data } = usePage().props;
+    const [pendingCount, setPendingCount] = useState(0);
     
     // Get user type from job title
     const userType = emp_data?.emp_jobtitle?.toLowerCase() || '';
@@ -32,6 +36,38 @@ export default function NavLinks() {
         return allowedUsers.includes('employee');
     };
 
+    // Fetch pending count
+    const fetchPendingCount = async () => {
+        try {
+            const response = await fetch(route('material-issuance.pending-count'));
+            const data = await response.json();
+            setPendingCount(data.total);
+        } catch (error) {
+            console.error('Error fetching pending count:', error);
+        }
+    };
+
+    // Poll for updates every 30 seconds
+    useEffect(() => {
+        if (canView(['store', 'administrator'])) {
+            fetchPendingCount();
+            const interval = setInterval(fetchPendingCount, 30000); // 30 seconds
+            return () => clearInterval(interval);
+        }
+    }, []);
+
+    // Listen for Inertia page visits to refresh count
+    useEffect(() => {
+        if (canView(['store', 'administrator'])) {
+            const removeListener = router.on('success', () => {
+                fetchPendingCount();
+            });
+            return removeListener;
+        }
+    }, []);
+
+    const iconClass = "w-5 h-5";
+
     // Navigation configuration
     const navItems = [
         {
@@ -39,79 +75,79 @@ export default function NavLinks() {
             show: canView(['employee', 'consigned', 'store', 'administrator']),
             href: route("dashboard"),
             label: "Dashboard",
-            icon: <HiSquares2X2 className="w-5 h-5" />
+            icon: <HiSquares2X2 className={iconClass} />,
         },
         {
             type: 'link',
             show: canView(['store', 'administrator']),
             href: route("material-issuance"),
             label: "Material Issuance",
-            icon: <HiDocumentArrowUp className="w-5 h-5" />
+            icon: <HiArrowUpTray className={iconClass} />,
+            badge: pendingCount > 0 ? pendingCount : null,
         },
         {
             type: 'dropdown',
             show: canView(['store', 'administrator']),
             label: "Manage Material",
-            icon: <HiFolderOpen className="w-5 h-5" />,
+            icon: <HiFolder className={iconClass} />,
             notifications: true,
             links: [
                 {
                     show: canView(['store', 'administrator']),
                     href: route("consumable"),
                     label: "Consumable & Spares",
-                    icon: <HiCube className="w-5 h-5" />
+                    icon: <HiCube className={iconClass} />,
                 },
                 {
                     show: canView(['store', 'administrator']),
                     href: route("supplies"),
                     label: "Supplies",
-                    icon: <HiArchiveBox className="w-5 h-5" />
+                    icon: <HiInboxStack className={iconClass} />,
                 },
                 {
                     show: canView(['store', 'administrator']),
                     href: route("consigned"),
                     label: "Consigned",
-                    icon: <HiClipboardDocumentList className="w-5 h-5" />
-                }
-            ]
+                    icon: <HiClipboard className={iconClass} />,
+                },
+            ],
         },
         {
             type: 'link',
             show: canView(['store', 'administrator']),
             href: route("export"),
             label: "Export",
-            icon: <HiDocumentArrowDown className="w-5 h-5" />
+            icon: <HiArrowDownTray className={iconClass} />,
         },
         {
             type: 'link',
             show: canView(['employee', 'consigned']),
             href: route("order-material"),
             label: "Order Material",
-            icon: <HiShoppingCart className="w-5 h-5" />
+            icon: <HiShoppingCart className={iconClass} />,
         },
         {
             type: 'link',
             show: canView(['employee']) && emp_data?.emp_position != 1,
             href: route("approval"),
             label: "Approval Request",
-            icon: <HiCheckBadge className="w-5 h-5" />
-        },        
+            icon: <HiCheckCircle className={iconClass} />,
+        },
         {
             type: 'link',
             show: canView(['administrator']),
             href: route("adminUser"),
             label: "Administrator List",
-            icon: <HiDocumentArrowUp className="w-5 h-5" />
+            icon: <HiUsers className={iconClass} />,
         },
-                {
+        {
             type: 'link',
             show: canView(['administrator']),
             href: route("consignedUser"),
             label: "Consigned User",
-            icon: <HiDocumentArrowUp className="w-5 h-5" />
-        }
+            icon: <HiUserGroup className={iconClass} />,
+        },
     ];
-    
 
     return (
         <nav className="flex flex-col flex-grow space-y-1 overflow-y-auto" style={{ scrollbarWidth: "none" }}>
@@ -139,6 +175,7 @@ export default function NavLinks() {
                         href={item.href}
                         label={item.label}
                         icon={item.icon}
+                        notifications={item.badge || 0}
                     />
                 );
             })}
