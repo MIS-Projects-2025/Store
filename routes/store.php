@@ -71,7 +71,7 @@ Route::prefix($app_name)
             ->name('material-issuance.get-replacement-items-supplies');
 
         // Replace Item
-        Route::post('/material-issuance.replace-item.supplies', [MaterialIssuanceController::class, 'replaceItemSupplies'])
+        Route::post('material-issuance/replace-item/supplies', [MaterialIssuanceController::class, 'replaceItemSupplies'])
             ->name('material-issuance.replace-item-supplies');
 
         // ==================== CONSIGNED ROUTES ====================
@@ -112,4 +112,24 @@ Route::prefix($app_name)
         // Real time functions
         Route::get('/material-issuance/pending-count', [MaterialIssuanceController::class, 'getPendingCount'])
             ->name('material-issuance.pending-count');
+
+        // Cancel single item from Preparing (no inventory restoration)
+        Route::post('/material-issuance/cancel-item-consumable-preparing',  [MaterialIssuanceController::class, 'cancelItemConsumablePreparing'])
+            ->name('material-issuance.cancel-item-consumable-preparing');
+
+        Route::post('/material-issuance/cancel-item-supplies-preparing',    [MaterialIssuanceController::class, 'cancelItemSuppliesPreparing'])
+            ->name('material-issuance.cancel-item-supplies-preparing');
+
+        Route::post('/material-issuance/cancel-item-consigned-preparing',   [MaterialIssuanceController::class, 'cancelItemConsignedPreparing'])
+            ->name('material-issuance.cancel-item-consigned-preparing');
+
+        // Cancel single item from For Pick Up (WITH inventory restoration)
+        Route::post('/material-issuance/cancel-item-consumable-for-pick-up',  [MaterialIssuanceController::class, 'cancelItemConsumableForPickUp'])
+            ->name('material-issuance.cancel-item-consumable-for-pick-up');
+
+        Route::post('/material-issuance/cancel-item-supplies-for-pick-up',    [MaterialIssuanceController::class, 'cancelItemSuppliesForPickUp'])
+            ->name('material-issuance.cancel-item-supplies-for-pick-up');
+
+        Route::post('/material-issuance/cancel-item-consigned-for-pick-up',   [MaterialIssuanceController::class, 'cancelItemConsignedForPickUp'])
+            ->name('material-issuance.cancel-item-consigned-for-pick-up');
     });

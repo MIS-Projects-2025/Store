@@ -16,7 +16,7 @@ return [
     |
     */
 
-    'default' => env('DB_CONNECTION', 'sqlite'),
+    'default' => 'newstore',
 
     /*
     |--------------------------------------------------------------------------
@@ -45,11 +45,11 @@ return [
         'newstore' => [
             'driver' => 'mysql',
             'url' => env('DB_URL'),
-            'host' => env('DB_HOST', '127.0.0.1'),
-            'port' => env('DB_PORT', '3306'),
-            'database' => env('DB_DATABASE', 'laravel'),
-            'username' => env('DB_USERNAME', 'root'),
-            'password' => env('DB_PASSWORD', ''),
+            'host' => '192.168.1.26',
+            'port' => '3306',
+            'database' => 'newstore_aj',
+            'username' => 'Global_26',
+            'password' => 'Global_26',
             'unix_socket' => env('DB_SOCKET', ''),
             'charset' => env('DB_CHARSET', 'utf8mb4'),
             'collation' => env('DB_COLLATION', 'utf8mb4_unicode_ci'),
@@ -65,11 +65,11 @@ return [
         'masterlist' => [
             'driver' => 'mysql',
             'url' => env('ADB_URL'),
-            'host' => env('MDB_HOST', '127.0.0.1'),
-            'port' => env('MDB_PORT', '3306'),
-            'database' => env('MDB_DATABASE', 'laravel'),
-            'username' => env('MDB_USERNAME', 'root'),
-            'password' => env('MDB_PASSWORD', ''),
+            'host' => '192.168.1.28',
+            'port' => '3306',
+            'database' => 'tspi_hr_db',
+            'username' => 'global28',
+            'password' => 'global28',
             'unix_socket' => env('MDB_SOCKET', ''),
             'charset' => env('MDB_CHARSET', 'utf8mb4'),
             'collation' => env('MDB_COLLATION', 'utf8mb4_unicode_ci'),
@@ -85,11 +85,11 @@ return [
         'authify' => [
             'driver' => 'mysql',
             'url' => env('ADB_URL'),
-            'host' => env('ADB_HOST', '127.0.0.1'),
-            'port' => env('ADB_PORT', '3306'),
-            'database' => env('ADB_DATABASE', 'laravel'),
-            'username' => env('ADB_USERNAME', 'root'),
-            'password' => env('ADB_PASSWORD', ''),
+            'host' => '192.168.1.27',
+            'port' => '3306',
+            'database' => 'authify',
+            'username' => 'Global@127',
+            'password' => 'Global@127',
             'unix_socket' => env('ADB_SOCKET', ''),
             'charset' => env('ADB_CHARSET', 'utf8mb4'),
             'collation' => env('ADB_COLLATION', 'utf8mb4_unicode_ci'),

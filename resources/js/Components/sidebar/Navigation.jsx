@@ -14,49 +14,45 @@ import {
   HiCheckCircle,
   HiUsers,
   HiUserGroup,
+  HiChartBar,
 } from "react-icons/hi2";
 
 export default function NavLinks() {
     const { emp_data } = usePage().props;
-    const [pendingCount, setPendingCount] = useState(0);
-    
-    // Get user type from job title
+    const [pendingConsumables, setPendingConsumables] = useState(0);
+    const [pendingSupplies, setPendingSupplies]       = useState(0);
+    const [pendingConsigned, setPendingConsigned]     = useState(0);
+
     const userType = emp_data?.emp_jobtitle?.toLowerCase() || '';
-    
-    // Check if user is administrator
     const isAdministrator = emp_data?.emp_station == 1 && emp_data?.emp_jobtitle === "Store User";
 
-    // Simple access check
     const canView = (allowedUsers) => {
-        // Administrator has access to everything
         if (isAdministrator && allowedUsers.includes('administrator')) return true;
-        
         if (userType.includes('consigned')) return allowedUsers.includes('consigned');
         if (userType.includes('store')) return allowedUsers.includes('store');
         return allowedUsers.includes('employee');
     };
 
-    // Fetch pending count
     const fetchPendingCount = async () => {
         try {
             const response = await fetch(route('material-issuance.pending-count'));
             const data = await response.json();
-            setPendingCount(data.total);
+            setPendingConsumables(data.pendingConsumables ?? 0);
+            setPendingSupplies(data.pendingSupplies ?? 0);
+            setPendingConsigned(data.pendingConsigned ?? 0);
         } catch (error) {
             console.error('Error fetching pending count:', error);
         }
     };
 
-    // Poll for updates every 30 seconds
     useEffect(() => {
         if (canView(['store', 'administrator'])) {
             fetchPendingCount();
-            const interval = setInterval(fetchPendingCount, 30000); // 30 seconds
+            const interval = setInterval(fetchPendingCount, 30000);
             return () => clearInterval(interval);
         }
     }, []);
 
-    // Listen for Inertia page visits to refresh count
     useEffect(() => {
         if (canView(['store', 'administrator'])) {
             const removeListener = router.on('success', () => {
@@ -68,7 +64,14 @@ export default function NavLinks() {
 
     const iconClass = "w-5 h-5";
 
-    // Navigation configuration
+    // Build the badge string — only include parts with a non-zero count
+    const totalPending = pendingConsumables + pendingSupplies + pendingConsigned;
+    const badgeLabel = [
+        pendingConsumables > 0 && `CS:${pendingConsumables}`,
+        pendingSupplies > 0    && `S:${pendingSupplies}`,
+        pendingConsigned > 0   && `C:${pendingConsigned}`,
+    ].filter(Boolean).join(" ");
+
     const navItems = [
         {
             type: 'link',
@@ -83,7 +86,8 @@ export default function NavLinks() {
             href: route("material-issuance"),
             label: "Material Issuance",
             icon: <HiArrowUpTray className={iconClass} />,
-            badge: pendingCount > 0 ? pendingCount : null,
+            // String badge → "CS:3 S:1 C:2" | empty string when nothing pending
+            badge: totalPending > 0 ? badgeLabel : "",
         },
         {
             type: 'dropdown',
@@ -121,14 +125,21 @@ export default function NavLinks() {
         },
         {
             type: 'link',
-            show: canView(['employee', 'consigned']),
+            show: canView(['store','employee', 'consigned']),
             href: route("order-material"),
             label: "Order Material",
             icon: <HiShoppingCart className={iconClass} />,
         },
         {
             type: 'link',
-            show: canView(['employee']) && emp_data?.emp_position != 1,
+            show: canView(['store','employee', 'consigned']),
+            href: route("order-monitor"),
+            label: "Order Monitor",
+            icon: <HiChartBar className={iconClass} />,
+        },
+        {
+            type: 'link',
+            show: canView(['employee', 'store']) && emp_data?.emp_position != 1,
             href: route("approval"),
             label: "Approval Request",
             icon: <HiCheckCircle className={iconClass} />,
@@ -147,6 +158,7 @@ export default function NavLinks() {
             label: "Consigned User",
             icon: <HiUserGroup className={iconClass} />,
         },
+
     ];
 
     return (
@@ -157,7 +169,6 @@ export default function NavLinks() {
                 if (item.type === 'dropdown') {
                     const visibleLinks = item.links.filter(link => link.show);
                     if (visibleLinks.length === 0) return null;
-
                     return (
                         <Dropdown
                             key={index}
@@ -175,7 +186,7 @@ export default function NavLinks() {
                         href={item.href}
                         label={item.label}
                         icon={item.icon}
-                        notifications={item.badge || 0}
+                        notifications={item.badge ?? item.notifications ?? 0}
                     />
                 );
             })}

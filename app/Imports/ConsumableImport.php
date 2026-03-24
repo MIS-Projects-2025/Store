@@ -36,44 +36,35 @@ class ConsumableImport implements ToCollection, WithHeadingRow
             $processedCount = 0;
             $skippedCount = 0;
             
-            foreach ($rows as $index => $row) {
-                $rowNumber = $index + 2;
-                
-                Log::info("Processing row {$rowNumber}");
-                
-                // Extract and trim values
-                $materialDescription = trim($row['material_description'] ?? '');
-                $category = trim($row['category'] ?? '');
-                $uom = trim($row['uom'] ?? '');
-                $itemCode = trim($row['item_code'] ?? '');
-                
-                // SKIP COMPLETELY EMPTY ROWS
-                if (empty($materialDescription) && empty($category) && empty($uom) && empty($itemCode)) {
-                    Log::info("Skipping empty row {$rowNumber}");
-                    $skippedCount++;
-                    continue;
-                }
-                
-                // Validate required fields for non-empty rows
-                if (empty($materialDescription)) {
-                    $this->errors[] = "Row {$rowNumber}: Material description is required";
-                    continue;
-                }
-                
-                if (empty($category)) {
-                    $this->errors[] = "Row {$rowNumber}: Category is required";
-                    continue;
-                }
-                
-                if (empty($uom)) {
-                    $this->errors[] = "Row {$rowNumber}: UOM is required";
-                    continue;
-                }
-                
-                if (empty($itemCode)) {
-                    $this->errors[] = "Row {$rowNumber}: Item code is required";
-                    continue;
-                }
+foreach ($rows as $index => $row) {
+    $rowNumber = $index + 2;
+    
+    // Extract and trim values
+    $materialDescription = trim($row['material_description'] ?? '');
+    $category = trim($row['category'] ?? '');
+    $uom = trim($row['uom'] ?? '');
+    $itemCode = trim($row['item_code'] ?? '');
+    
+    // SKIP COMPLETELY EMPTY ROWS (all key fields are empty)
+    if (empty($materialDescription) && empty($category) && empty($uom) && empty($itemCode)) {
+        Log::info("Skipping completely empty row {$rowNumber}");
+        $skippedCount++;
+        continue;
+    }
+    
+    // SKIP ROWS WITH MISSING CRITICAL FIELDS (instead of throwing errors)
+    if (empty($materialDescription) || empty($category) || empty($uom)) {
+        Log::warning("Skipping row {$rowNumber} - missing required fields (Material: '{$materialDescription}', Category: '{$category}', UOM: '{$uom}')");
+        $skippedCount++;
+        continue;
+    }
+    
+    // Item code is required for creating details
+    if (empty($itemCode)) {
+        Log::warning("Skipping row {$rowNumber} - missing item code");
+        $skippedCount++;
+        continue;
+    }
                 
                 $detailedDescription = trim($row['detailed_description'] ?? '');
                 $serial = trim($row['serial'] ?? '');
@@ -82,11 +73,12 @@ class ConsumableImport implements ToCollection, WithHeadingRow
                 $max = $row['max'] ?? 0;
                 $min = $row['min'] ?? 0;
                 
-                // Validate quantity is numeric
-                if (!is_numeric($quantity) || $quantity < 0) {
-                    $this->errors[] = "Row {$rowNumber}: Invalid quantity '{$quantity}'";
-                    continue;
-                }
+// Validate quantity is numeric (skip row if invalid)
+if (!is_numeric($quantity) || $quantity < 0) {
+    Log::warning("Skipping row {$rowNumber} - invalid quantity '{$quantity}'");
+    $skippedCount++;
+    continue;
+}
                 
                 // Get or create consumable
                 $consumableKey = strtolower($materialDescription);
@@ -165,12 +157,8 @@ class ConsumableImport implements ToCollection, WithHeadingRow
                 $processedCount++;
             }
             
-            if (!empty($this->errors)) {
-                Log::error('Import errors found: ' . count($this->errors));
-                Log::error('Errors: ' . implode("\n", $this->errors));
-                DB::rollBack();
-                throw new \Exception("Import failed with " . count($this->errors) . " errors:\n" . implode("\n", $this->errors));
-            }
+// No longer using $this->errors array since we skip invalid rows instead
+// This section can be removed or kept for future use
             
             // Now save all buffered details to database
             Log::info('Saving buffered details to database...');
@@ -192,12 +180,12 @@ class ConsumableImport implements ToCollection, WithHeadingRow
                 }
             }
             
-            DB::commit();
-            Log::info('=== IMPORT COMPLETED SUCCESSFULLY ===');
-            Log::info("Created/Updated " . count($this->consumableCache) . " consumables");
-            Log::info("Processed {$processedCount} data rows");
-            Log::info("Skipped {$skippedCount} empty rows");
-            Log::info("Created {$totalDetailsCreated} unique detail records");
+DB::commit();
+Log::info('=== IMPORT COMPLETED SUCCESSFULLY ===');
+Log::info("Created/Updated " . count($this->consumableCache) . " consumables");
+Log::info("Processed {$processedCount} data rows");
+Log::info("Skipped {$skippedCount} rows (empty or invalid)");
+Log::info("Created {$totalDetailsCreated} unique detail records");
             
         } catch (\Exception $e) {
             DB::rollBack();

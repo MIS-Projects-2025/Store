@@ -45,6 +45,7 @@ class ConsumableCart extends Model
         'approver',
         'department',
         'prodline',
+        'machine_no',
         'mrs_status',
         'approver_status',
         'issued_by',

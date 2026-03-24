@@ -96,12 +96,14 @@ class ConsignedImport implements ToCollection, WithHeadingRow
                     $parsedExpiration = $this->parseDate($row['expiration_date'] ?? null);
                     Log::info("Parsed expiration result: " . ($parsedExpiration ?? 'NULL'));
                     
-                    // Create unique key to aggregate duplicates
+                    // ✅ UPDATED: Include expiration date in unique key
+                    // This ensures items with same code/supplier but different expiration are separate
                     $uniqueKey = implode('|', [
                         $consignedNo,
                         trim($row['item_code']),
                         trim($row['supplier']),
-                        $parsedExpiration ?? 'null',
+                        trim($description),
+                        $parsedExpiration ?? 'null',  // Expiration is part of uniqueness
                         trim($row['bin_location'] ?? ''),
                     ]);
                     
@@ -120,11 +122,11 @@ class ConsignedImport implements ToCollection, WithHeadingRow
                             'bin_location' => trim($row['bin_location'] ?? ''),
                             'rows' => [$rowNumber]
                         ];
-                        Log::info("Buffered new detail for row {$rowNumber}");
+                        Log::info("Buffered new detail for row {$rowNumber} with expiration: " . ($parsedExpiration ?? 'NULL'));
                     } else {
-                        // Duplicate found - aggregate quantity
+                        // Duplicate found (same item code, supplier, description, AND expiration) - aggregate quantity
                         $this->detailsBuffer[$description][$uniqueKey]['rows'][] = $rowNumber;
-                        Log::info("Duplicate found - row {$rowNumber} will be merged");
+                        Log::info("Duplicate found (same expiration) - row {$rowNumber} will be merged");
                     }
                     
                     // Aggregate quantity
@@ -155,15 +157,42 @@ class ConsignedImport implements ToCollection, WithHeadingRow
                     $rows = $detail['rows'];
                     unset($detail['rows']); // Remove the tracking array before saving
                     
+                    // ✅ VALIDATION: Check if this exact combination already exists in database
+                    $existingDetail = ConsignedDetail::where('consigned_no', $detail['consigned_no'])
+                        ->where('item_code', $detail['item_code'])
+                        ->where('supplier', $detail['supplier'])
+                        ->where(function($query) use ($detail) {
+                            if (empty($detail['expiration'])) {
+                                $query->whereNull('expiration');
+                            } else {
+                                $query->where('expiration', $detail['expiration']);
+                            }
+                        })
+                        ->first();
+
+                    if ($existingDetail) {
+                        $rowsList = implode(', ', $rows);
+                        $expirationDisplay = $detail['expiration'] ?? 'NULL';
+                        $error = "Row(s) {$rowsList}: Item '{$detail['item_code']}' with supplier '{$detail['supplier']}' and expiration '{$expirationDisplay}' already exists in database";
+                        Log::warning($error);
+                        $this->errors[] = $error;
+                        continue; // Skip this detail, don't create duplicate
+                    }
+                    
                     $detailRecord = ConsignedDetail::create($detail);
                     $totalDetailsCreated++;
                     
                     if (count($rows) > 1) {
-                        Log::info("Created detail ID {$detailRecord->id} (merged from rows: " . implode(', ', $rows) . ") with total quantity: {$detailRecord->qty}");
+                        Log::info("Created detail ID {$detailRecord->id} (merged from rows: " . implode(', ', $rows) . ") with expiration: " . ($detail['expiration'] ?? 'NULL') . " and total quantity: {$detailRecord->qty}");
                     } else {
-                        Log::info("Created detail ID {$detailRecord->id} from row {$rows[0]} with quantity: {$detailRecord->qty}");
+                        Log::info("Created detail ID {$detailRecord->id} from row {$rows[0]} with expiration: " . ($detail['expiration'] ?? 'NULL') . " and quantity: {$detailRecord->qty}");
                     }
                 }
+            }
+            
+            // If there were warnings during save, log them but don't fail the import
+            if (!empty($this->errors)) {
+                Log::warning('Import completed with warnings: ' . implode("\n", $this->errors));
             }
             
             DB::commit();

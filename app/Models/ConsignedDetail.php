@@ -9,12 +9,44 @@ class ConsignedDetail extends Model
 {
     use HasFactory;
 
+    /**
+     * Database connection name
+     */
     protected $connection = 'newstore';
-    protected $table = 'consigned_details';
 
+    /**
+     * Table name
+     */
+    protected $table = 'consigned_details'; // keep exact DB spelling
+
+    /**
+     * Primary key
+     */
+    protected $primaryKey = 'id';
+
+    /**
+     * Auto-incrementing primary key
+     */
+    public $incrementing = true;
+
+    /**
+     * Primary key type
+     */
+    protected $keyType = 'int';
+
+    /**
+     * Timestamps enabled
+     */
+    public $timestamps = true;
+
+    /**
+     * Mass assignable fields
+     */
     protected $fillable = [
         'consigned_no',
+        'commonality',
         'item_code',
+        'mat_description',
         'supplier',
         'expiration',
         'uom',
@@ -26,82 +58,26 @@ class ConsignedDetail extends Model
         'bin_location',
     ];
 
+    /**
+     * Attribute casting
+     */
+    protected $casts = [
+        'expiration' => 'date',
+        'price'      => 'decimal:2',
+        'qty'        => 'integer',
+        'qty_per_box'=> 'integer',
+        'minimum'    => 'integer',
+        'maximum'    => 'integer',
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime',
+    ];
+
+    /**
+     * Relationship: header (consigned)
+     * consigned.consigned_no -> consigned_detials.consigned_no
+     */
     public function consigned()
     {
         return $this->belongsTo(Consigned::class, 'consigned_no', 'consigned_no');
-    }
-
-    public function history()
-    {
-        return $this->hasMany(ConsignedDetailHistory::class, 'consigned_detail_id');
-    }
-
-    
-
-    /**
-     * Log history when creating, updating, or deleting detail
-     */
-    public static function boot()
-    {
-        parent::boot();
-
-        static::created(function ($detail) {
-            $user_name = session('emp_data.emp_name', 'Unknown User');
-            
-            ConsignedDetailHistory::create([
-                'consigned_detail_id' => $detail->id,
-                'consigned_no' => $detail->consigned_no,
-                'item_code' => $detail->item_code,
-                'action' => 'created',
-                'user_name' => $user_name,
-                'new_values' => $detail->toArray(),
-                'created_at' => now(),
-            ]);
-        });
-
-        static::updated(function ($detail) {
-            $user_name = session('emp_data.emp_name', 'Unknown User');
-            
-            $changes = [];
-            $oldValues = [];
-            $newValues = [];
-
-            foreach ($detail->getDirty() as $key => $newValue) {
-                $oldValue = $detail->getOriginal($key);
-                if ($oldValue != $newValue) {
-                    $changes[] = $key;
-                    $oldValues[$key] = $oldValue;
-                    $newValues[$key] = $newValue;
-                }
-            }
-
-            if (!empty($changes)) {
-                ConsignedDetailHistory::create([
-                    'consigned_detail_id' => $detail->id,
-                    'consigned_no' => $detail->consigned_no,
-                    'item_code' => $detail->item_code,
-                    'action' => 'updated',
-                    'user_name' => $user_name,
-                    'changes' => $changes,
-                    'old_values' => $oldValues,
-                    'new_values' => $newValues,
-                    'created_at' => now(),
-                ]);
-            }
-        });
-
-        static::deleted(function ($detail) {
-            $user_name = session('emp_data.emp_name', 'Unknown User');
-            
-            ConsignedDetailHistory::create([
-                'consigned_detail_id' => $detail->id,
-                'consigned_no' => $detail->consigned_no,
-                'item_code' => $detail->item_code,
-                'action' => 'deleted',
-                'user_name' => $user_name,
-                'old_values' => $detail->toArray(),
-                'created_at' => now(),
-            ]);
-        });
     }
 }

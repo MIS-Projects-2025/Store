@@ -18,6 +18,7 @@ require __DIR__ . '/consigned.php';
 require __DIR__ . '/approval.php';
 require __DIR__ . '/export.php';
 require __DIR__ . '/User.php';
+require __DIR__ . '/orderMonitor.php';
 
 
 Route::fallback(function () {

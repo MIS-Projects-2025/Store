@@ -29,9 +29,9 @@ class SuppliesController extends Controller
             ->orderBy('uom')
             ->get();
 
-        // Get all active supply details
+        // Get all active supply details — bin_location added
         $suppliesDetails = SupplyDetail::active()
-            ->select('supplies_no', 'item_code', 'detailed_description', 'qty', 'min', 'max', 'price')
+            ->select('id', 'supplies_no', 'item_code', 'detailed_description', 'bin_location', 'qty', 'min', 'max', 'price')
             ->get();
 
         // Get material-level history (no item_code)
@@ -73,6 +73,7 @@ class SuppliesController extends Controller
             'suppliesDetails' => $suppliesDetails,
             'suppliesHistory' => $suppliesHistory,
             'suppliesDetailsHistory' => $suppliesDetailsHistory,
+            'empStation' => session('emp_data.emp_station', 1),
         ]);
     }
 
@@ -102,18 +103,67 @@ class SuppliesController extends Controller
 
         return back()->with('success', 'Material created successfully!');
     }
+    
+    public function storeWithDetail(Request $request)
+{
+    $validated = $request->validate([
+        'material_description' => 'required|string|max:255',
+        'uom'                  => 'required|string|max:50',
+        'item_code'            => 'required|string|max:50',
+        'detailed_description' => 'required|string|max:255',
+        'bin_location'         => 'nullable|string|max:100',
+        'qty'                  => 'required|integer|min:0',
+        'min'                  => 'required|integer|min:0',
+        'max'                  => 'required|integer|min:0',
+        'price'                => 'required|numeric|min:0',
+    ]);
+
+    DB::beginTransaction();
+    try {
+        $lastSupply = Supply::withTrashed()->orderBy('supplies_no', 'desc')->first();
+        $nextNumber = $lastSupply
+            ? intval(substr($lastSupply->supplies_no, 4)) + 1
+            : 1;
+        $suppliesNo = 'SUP-' . str_pad($nextNumber, 5, '0', STR_PAD_LEFT);
+
+        Supply::create([
+            'supplies_no'          => $suppliesNo,
+            'material_description' => $validated['material_description'],
+            'uom'                  => $validated['uom'],
+            'created_by'           => Auth::id(),
+        ]);
+
+        SupplyDetail::create([
+            'supplies_no'          => $suppliesNo,
+            'item_code'            => $validated['item_code'],
+            'detailed_description' => $validated['detailed_description'],
+            'bin_location'         => $validated['bin_location'] ?? null,
+            'qty'                  => $validated['qty'],
+            'min'                  => $validated['min'],
+            'max'                  => $validated['max'],
+            'price'                => $validated['price'],
+            'created_by'           => Auth::id(),
+        ]);
+
+        DB::commit();
+        return back()->with('success', 'Material and details saved successfully!');
+    } catch (\Exception $e) {
+        DB::rollBack();
+        return back()->withErrors(['error' => 'Failed to save: ' . $e->getMessage()]);
+    }
+}
 
     /**
      * Update a supply (material) using supplies_no
      */
-    public function update(Request $request, $supply) // Change parameter
+    public function update(Request $request, $supply)
     {
         $validated = $request->validate([
             'material_description' => 'required|string|max:255',
             'uom' => 'required|string|max:50',
         ]);
 
-        $supply = Supply::where('supplies_no', $supply)->firstOrFail(); // Find by supplies_no
+        $supply = Supply::where('supplies_no', $supply)->firstOrFail();
         $supply->update([
             'material_description' => $validated['material_description'],
             'uom' => $validated['uom'],
@@ -130,22 +180,18 @@ class SuppliesController extends Controller
     {
         DB::beginTransaction();
         try {
-            // Find the supply
             $supply = Supply::where('supplies_no', $suppliesNo)->firstOrFail();
             
-            // Get all related details before deleting
             $details = SupplyDetail::where('supplies_no', $suppliesNo)
                                    ->where('is_deleted', false)
                                    ->get();
             
-            // Soft delete each detail (this will trigger their history logging)
             foreach ($details as $detail) {
                 $detail->deleted_by = Auth::id();
                 $detail->save();
                 $detail->delete();
             }
             
-            // Now delete the supply (this will trigger its history logging)
             $supply->deleted_by = Auth::id();
             $supply->save();
             $supply->delete();
@@ -157,30 +203,33 @@ class SuppliesController extends Controller
             return back()->withErrors(['error' => 'Failed to delete: ' . $e->getMessage()]);
         }
     }
+
     /**
      * Store a new supply detail
      */
     public function storeDetail(Request $request)
     {
         $validated = $request->validate([
-            'supplies_no' => 'required|string|exists:supplies,supplies_no',
-            'item_code' => 'required|string|max:50',
+            'supplies_no'          => 'required|string|exists:supplies,supplies_no',
+            'item_code'            => 'required|string|max:50',
             'detailed_description' => 'required|string|max:255',
-            'qty' => 'required|integer|min:0',
-            'min' => 'required|integer|min:0',
-            'max' => 'required|integer|min:0',
-            'price' => 'required|numeric|min:0',
+            'bin_location'         => 'nullable|string|max:100',
+            'qty'                  => 'required|integer|min:0',
+            'min'                  => 'required|integer|min:0',
+            'max'                  => 'required|integer|min:0',
+            'price'                => 'required|numeric|min:0',
         ]);
 
         $detail = SupplyDetail::create([
-            'supplies_no' => $validated['supplies_no'],
-            'item_code' => $validated['item_code'],
+            'supplies_no'          => $validated['supplies_no'],
+            'item_code'            => $validated['item_code'],
             'detailed_description' => $validated['detailed_description'],
-            'qty' => $validated['qty'],
-            'min' => $validated['min'],
-            'max' => $validated['max'],
-            'price' => $validated['price'],
-            'created_by' => Auth::id(),
+            'bin_location'         => $validated['bin_location'] ?? null,
+            'qty'                  => $validated['qty'],
+            'min'                  => $validated['min'],
+            'max'                  => $validated['max'],
+            'price'                => $validated['price'],
+            'created_by'           => Auth::id(),
         ]);
 
         return back()->with('success', 'Detail created successfully!');
@@ -189,14 +238,15 @@ class SuppliesController extends Controller
     /**
      * Update supply detail
      */
-public function updateDetail(Request $request, $suppliesNo, $itemCode)
+    public function updateDetail(Request $request, $suppliesNo, $itemCode)
     {
         $validated = $request->validate([
-            'qty' => 'sometimes|integer|min:0',
-            'min' => 'sometimes|integer|min:0',
-            'max' => 'sometimes|integer|min:0',
-            'price' => 'sometimes|numeric|min:0',
+            'qty'                  => 'sometimes|integer|min:0',
+            'min'                  => 'sometimes|integer|min:0',
+            'max'                  => 'sometimes|integer|min:0',
+            'price'                => 'sometimes|numeric|min:0',
             'detailed_description' => 'sometimes|string|max:255',
+            'bin_location'         => 'sometimes|nullable|string|max:100',
         ]);
 
         $detail = SupplyDetail::where('supplies_no', $suppliesNo)
@@ -214,31 +264,41 @@ public function updateDetail(Request $request, $suppliesNo, $itemCode)
     /**
      * Bulk update supply details (for edit mode in modal)
      */
-   public function bulkUpdateDetails(Request $request)
+    public function bulkUpdateDetails(Request $request)
     {
         $validated = $request->validate([
-            'details' => 'required|array',
-            'details.*.supplies_no' => 'required|exists:supplies_details,supplies_no',
-            'details.*.item_code' => 'required|string',
-            'details.*.min' => 'required|integer|min:0',
-            'details.*.max' => 'required|integer|min:0',
-            'details.*.price' => 'required|numeric|min:0',
+            'details'                   => 'required|array',
+            'details.*.id'              => 'required|integer|exists:supplies_details,id',
+            'details.*.item_code'       => 'required|string|max:50',
+            'details.*.description'     => 'nullable|string|max:255',
+            'details.*.bin_location'    => 'nullable|string|max:100',
+            'details.*.min'             => 'required|integer|min:0',
+            'details.*.max'             => 'required|integer|min:0',
+            'details.*.price'           => 'nullable|numeric|min:0',
+            'details.*.qty'             => 'nullable|integer|min:0',
         ]);
 
         DB::beginTransaction();
         try {
             foreach ($validated['details'] as $detailData) {
-                $detail = SupplyDetail::where('supplies_no', $detailData['supplies_no'])
-                                      ->where('item_code', $detailData['item_code'])
+                $detail = SupplyDetail::where('id', $detailData['id'])
                                       ->where('is_deleted', false)
                                       ->firstOrFail();
-                                      
-                $detail->update([
-                    'min' => $detailData['min'],
-                    'max' => $detailData['max'],
-                    'price' => $detailData['price'],
-                    'updated_by' => Auth::id(),
-                ]);
+
+                $updateData = [
+                    'item_code'   => $detailData['item_code'],
+                    'min'         => $detailData['min'],
+                    'max'         => $detailData['max'],
+                    'updated_by'  => Auth::id(),
+                ];
+
+                if (isset($detailData['price']))        $updateData['price']                = $detailData['price'];
+                if (array_key_exists('qty', $detailData)) $updateData['qty']               = $detailData['qty'];
+                if (!empty($detailData['description'])) $updateData['detailed_description'] = $detailData['description'];
+                // bin_location can be empty string / null — use array_key_exists
+                if (array_key_exists('bin_location', $detailData)) $updateData['bin_location'] = $detailData['bin_location'];
+
+                $detail->update($updateData);
             }
             DB::commit();
             return back()->with('success', 'Details updated successfully!');
@@ -248,29 +308,28 @@ public function updateDetail(Request $request, $suppliesNo, $itemCode)
         }
     }
 
-
     /**
      * Add quantity to supply details
      */
     public function addQuantity(Request $request)
     {
         $validated = $request->validate([
-            'quantities' => 'required|array',
+            'quantities'             => 'required|array',
+            'quantities.*.id'        => 'required|integer|exists:supplies_details,id',
             'quantities.*.supplies_no' => 'required|exists:supplies_details,supplies_no',
             'quantities.*.item_code' => 'required|string',
-            'quantities.*.add_qty' => 'required|integer|min:0',
+            'quantities.*.add_qty'   => 'required|integer|min:0',
         ]);
 
         DB::beginTransaction();
         try {
             foreach ($validated['quantities'] as $quantityData) {
-                $detail = SupplyDetail::where('supplies_no', $quantityData['supplies_no'])
-                                      ->where('item_code', $quantityData['item_code'])
+                $detail = SupplyDetail::where('id', $quantityData['id'])
                                       ->where('is_deleted', false)
                                       ->firstOrFail();
                                       
                 $detail->update([
-                    'qty' => $detail->qty + $quantityData['add_qty'],
+                    'qty'        => $detail->qty + $quantityData['add_qty'],
                     'updated_by' => Auth::id(),
                 ]);
             }
@@ -289,7 +348,6 @@ public function updateDetail(Request $request, $suppliesNo, $itemCode)
     {
         DB::beginTransaction();
         try {
-            // Find the detail by supplies_no and item_code
             $detail = SupplyDetail::where('supplies_no', $suppliesNo)
                                   ->where('item_code', $itemCode)
                                   ->where('is_deleted', false)
@@ -422,35 +480,34 @@ public function updateDetail(Request $request, $suppliesNo, $itemCode)
     }
 
     public function import(Request $request)
-{
-    $request->validate([
-        'file' => 'required|mimes:xlsx,xls,csv|max:5120',
-    ]);
+    {
+        $request->validate([
+            'file' => 'required|mimes:xlsx,xls,csv|max:5120',
+        ]);
 
-    try {
-        Log::info('Supplies import started - File: ' . $request->file('file')->getClientOriginalName());
-        
-        Excel::import(new SuppliesImport, $request->file('file'));
-        
-        Log::info('Supplies import completed successfully');
-        return redirect()->back()->with('success', 'File imported successfully!');
-        
-    } catch (\Maatwebsite\Excel\Validators\ValidationException $e) {
-        $failures = $e->failures();
-        $errors = [];
-        
-        foreach ($failures as $failure) {
-            $errors[] = "Row {$failure->row()}: " . implode(', ', $failure->errors());
+        try {
+            Log::info('Supplies import started - File: ' . $request->file('file')->getClientOriginalName());
+            
+            Excel::import(new SuppliesImport, $request->file('file'));
+            
+            Log::info('Supplies import completed successfully');
+            return redirect()->back()->with('success', 'File imported successfully!');
+            
+        } catch (\Maatwebsite\Excel\Validators\ValidationException $e) {
+            $failures = $e->failures();
+            $errors = [];
+            
+            foreach ($failures as $failure) {
+                $errors[] = "Row {$failure->row()}: " . implode(', ', $failure->errors());
+            }
+            
+            Log::error('Validation errors: ' . implode("\n", $errors));
+            return redirect()->back()->withErrors(['error' => 'Import failed: ' . implode("<br>", $errors)]);
+            
+        } catch (\Exception $e) {
+            Log::error('Supplies import failed: ' . $e->getMessage());
+            Log::error('Stack trace: ' . $e->getTraceAsString());
+            return redirect()->back()->withErrors(['error' => 'Import failed: ' . $e->getMessage()]);
         }
-        
-        Log::error('Validation errors: ' . implode("\n", $errors));
-        return redirect()->back()->withErrors(['error' => 'Import failed: ' . implode("<br>", $errors)]);
-        
-    } catch (\Exception $e) {
-        Log::error('Supplies import failed: ' . $e->getMessage());
-        Log::error('Stack trace: ' . $e->getTraceAsString());
-        return redirect()->back()->withErrors(['error' => 'Import failed: ' . $e->getMessage()]);
     }
-}
-
 }

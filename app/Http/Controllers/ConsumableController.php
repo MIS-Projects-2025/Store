@@ -49,23 +49,24 @@ class ConsumableController extends Controller
 
         $consumableItems = $query->paginate($perPage);
 
-        return Inertia::render('Consumable', [
-            'tableData' => [
-                'data' => $consumableItems->items(),
-                'pagination' => [
-                    'from' => $consumableItems->firstItem(),
-                    'to' => $consumableItems->lastItem(),
-                    'total' => $consumableItems->total(),
-                    'current_page' => $consumableItems->currentPage(),
-                    'last_page' => $consumableItems->lastPage(),
-                    'per_page' => $consumableItems->perPage(),
-                ]
-            ],
-            'tableFilters' => [
-                'search' => $search,
-                'per_page' => $perPage
-            ]
-        ]);
+return Inertia::render('Consumable', [
+    'tableData' => [
+        'data' => $consumableItems->items(),
+        'pagination' => [
+            'from' => $consumableItems->firstItem(),
+            'to' => $consumableItems->lastItem(),
+            'total' => $consumableItems->total(),
+            'current_page' => $consumableItems->currentPage(),
+            'last_page' => $consumableItems->lastPage(),
+            'per_page' => $consumableItems->perPage(),
+        ]
+    ],
+    'tableFilters' => [
+        'search' => $search,
+        'per_page' => $perPage
+    ],
+    'empStation' => session('emp_data.emp_station', 1), // ← ADD THIS
+]);
     }
 
     public function show($id)
@@ -399,29 +400,31 @@ public function destroyDetail($id)
         ]);
     }
 
-    public function import(Request $request)
-    {
-        $request->validate([
-            'file' => 'required|mimes:xlsx,xls,csv|max:5120', // 5MB max
-        ]);
+public function import(Request $request)
+{
+    $request->validate([
+        'file' => 'required|mimes:xlsx,xls,csv|max:5120', // 5MB max
+    ]);
 
-        try {
-            Excel::import(new ConsumableImport, $request->file('file'));
-            
-            return redirect()->back()->with('success', 'File imported successfully!');
-            
-        } catch (\Maatwebsite\Excel\Validators\ValidationException $e) {
-            $failures = $e->failures();
-            $errors = [];
-            
-            foreach ($failures as $failure) {
-                $errors[] = "Row {$failure->row()}: " . implode(', ', $failure->errors());
-            }
-            
-            return redirect()->back()->with('error', 'Import failed: ' . implode("\n", $errors));
-            
-        } catch (\Exception $e) {
-            return redirect()->back()->with('error', 'Import failed: ' . $e->getMessage());
+    try {
+        Excel::import(new ConsumableImport, $request->file('file'));
+        
+        return redirect()->back()->with('success', 'File imported successfully! Check the logs for details on skipped rows.');
+        
+    } catch (\Maatwebsite\Excel\Validators\ValidationException $e) {
+        $failures = $e->failures();
+        $errors = [];
+        
+        foreach ($failures as $failure) {
+            $errors[] = "Row {$failure->row()}: " . implode(', ', $failure->errors());
         }
+        
+        \Log::error('Import validation failed: ' . implode("; ", $errors));
+        return redirect()->back()->withErrors(['error' => 'Import failed with validation errors. Please check the file format.']);
+        
+    } catch (\Exception $e) {
+        \Log::error('Import exception: ' . $e->getMessage());
+        return redirect()->back()->withErrors(['error' => 'Import failed: ' . $e->getMessage()]);
     }
+}
 }

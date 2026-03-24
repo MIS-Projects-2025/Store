@@ -16,6 +16,7 @@ Route::prefix($app_name)
     Route::post('/supplies', [SuppliesController::class, 'store'])->name('supplies.store');
     Route::put('/supplies/{supply}', [SuppliesController::class, 'update'])->name('supplies.update');
     Route::delete('/supplies/{supply}', [SuppliesController::class, 'destroy'])->name('supplies.destroy');
+    Route::post('/supplies/store-with-detail', [SuppliesController::class, 'storeWithDetail'])->name('supplies.store-with-detail');
     
     // Supply Details CRUD - UPDATED ROUTES
     Route::post('/supplies/details', [SuppliesController::class, 'storeDetail'])->name('supplies.details.store');

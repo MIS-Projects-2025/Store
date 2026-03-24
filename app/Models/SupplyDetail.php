@@ -17,18 +17,19 @@ class SupplyDetail extends Model
 
     protected $table = 'supplies_details';
 
-    protected $fillable = [
-        'supplies_no',
-        'item_code',
-        'detailed_description',
-        'qty',
-        'min',
-        'max',
-        'price',
-        'created_by',
-        'updated_by',
-        'deleted_by',
-    ];
+protected $fillable = [
+    'supplies_no',
+    'item_code',
+    'detailed_description',
+    'bin_location', // added
+    'qty',
+    'min',
+    'max',
+    'price',
+    'created_by',
+    'updated_by',
+    'deleted_by',
+];
 
     protected $casts = [
         'qty' => 'integer',

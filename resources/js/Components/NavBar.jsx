@@ -21,22 +21,12 @@ export default function NavBar() {
         return () => clearInterval(interval);
     }, [theme]);
 
-const logout = () => {
-    const token = localStorage.getItem("authify-token") || '';
-    
-   
-    localStorage.clear();
-    sessionStorage.clear();
-    
+    const logout = () => {
+        localStorage.clear();
+        sessionStorage.clear();
 
-    const timestamp = Date.now();
-    const currentUrl = encodeURIComponent(window.location.href);
-    
-    window.location.href = `http://192.168.1.27:8080/authify/public/logout?token=${encodeURIComponent(
-        token
-    )}&redirect=${currentUrl}&t=${timestamp}`;
-};
-
+        window.location.href = route("logout"); // Laravel handles SSO redirect
+    };
     const isDark = theme === "dark";
 
     return (

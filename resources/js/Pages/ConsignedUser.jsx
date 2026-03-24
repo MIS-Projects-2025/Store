@@ -2,6 +2,16 @@ import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout";
 import { Head, router } from "@inertiajs/react";
 import { useState, useEffect } from "react";
 import axios from "axios";
+import { X, Search } from "lucide-react";
+import { CheckCircleOutlined } from "@ant-design/icons";
+
+// -------------------- Reusable border-only button style --------------------
+const outlineBtnStyle = (active = true) => ({
+    border: `2px ${active ? 'solid' : 'dashed'} currentColor`,
+    color: 'inherit',
+    backgroundColor: 'transparent',
+    opacity: active ? 1 : 0.45,
+});
 
 export default function ConsignedUser({ users }) {
     const [perPage, setPerPage] = useState(10);
@@ -15,8 +25,7 @@ export default function ConsignedUser({ users }) {
         username: '',
         password: ''
     });
-    
-    // New state for dropdown options
+
     const [departments, setDepartments] = useState([]);
     const [prodlines, setProdlines] = useState([]);
     const [searchDepartments, setSearchDepartments] = useState('');
@@ -24,47 +33,34 @@ export default function ConsignedUser({ users }) {
     const [filteredDepartments, setFilteredDepartments] = useState([]);
     const [filteredProdlines, setFilteredProdlines] = useState([]);
 
-    // Fetch departments and prodlines when modal opens
     useEffect(() => {
-        if (isModalOpen) {
-            fetchDepartmentsAndProdlines();
-        }
+        if (isModalOpen) fetchDepartmentsAndProdlines();
     }, [isModalOpen]);
 
-    // Filter departments based on search
     useEffect(() => {
-        if (searchDepartments) {
-            const filtered = departments.filter(dept => 
-                dept.toLowerCase().includes(searchDepartments.toLowerCase())
-            );
-            setFilteredDepartments(filtered);
-        } else {
-            setFilteredDepartments(departments);
-        }
+        setFilteredDepartments(
+            searchDepartments
+                ? departments.filter(d => d.toLowerCase().includes(searchDepartments.toLowerCase()))
+                : departments
+        );
     }, [searchDepartments, departments]);
 
-    // Filter prodlines based on search
     useEffect(() => {
-        if (searchProdlines) {
-            const filtered = prodlines.filter(line => 
-                line.toLowerCase().includes(searchProdlines.toLowerCase())
-            );
-            setFilteredProdlines(filtered);
-        } else {
-            setFilteredProdlines(prodlines);
-        }
+        setFilteredProdlines(
+            searchProdlines
+                ? prodlines.filter(l => l.toLowerCase().includes(searchProdlines.toLowerCase()))
+                : prodlines
+        );
     }, [searchProdlines, prodlines]);
 
     const fetchDepartmentsAndProdlines = async () => {
         try {
             const appPrefix = window.location.pathname.split('/')[1];
             const response = await axios.get(`/${appPrefix}/consigned-user/options`);
-            
             if (response.data.departments) {
                 setDepartments(response.data.departments);
                 setFilteredDepartments(response.data.departments);
             }
-            
             if (response.data.prodlines) {
                 setProdlines(response.data.prodlines);
                 setFilteredProdlines(response.data.prodlines);
@@ -79,15 +75,9 @@ export default function ConsignedUser({ users }) {
             const appPrefix = window.location.pathname.split('/')[1];
             const response = await axios.get(`/${appPrefix}/consigned-user/${id}/edit`);
             const user = response.data;
-            
             setIsEditMode(true);
             setEditUserId(id);
-            setFormData({
-                department: user.department || '',
-                prodline: user.prodline || '',
-                username: user.username || '',
-                password: ''
-            });
+            setFormData({ department: user.department || '', prodline: user.prodline || '', username: user.username || '', password: '' });
             setIsModalOpen(true);
         } catch (error) {
             console.error('Error fetching user:', error);
@@ -98,69 +88,37 @@ export default function ConsignedUser({ users }) {
     const handleDelete = (id) => {
         if (confirm('Are you sure you want to delete this consigned user?')) {
             const appPrefix = window.location.pathname.split('/')[1];
-            
             router.delete(`/${appPrefix}/consigned-user/${id}`, {
-                onSuccess: () => {
-                    alert('Consigned user deleted successfully');
-                },
-                onError: () => {
-                    alert('Failed to delete consigned user');
-                }
+                onSuccess: () => alert('Consigned user deleted successfully'),
+                onError:   () => alert('Failed to delete consigned user'),
             });
         }
     };
 
     const handlePageChange = (url) => {
-        if (url) {
-            router.visit(url, {
-                preserveState: true,
-                preserveScroll: true
-            });
-        }
+        if (url) router.visit(url, { preserveState: true, preserveScroll: true });
     };
 
     const handlePerPageChange = (e) => {
         const newPerPage = e.target.value;
         setPerPage(newPerPage);
-        router.visit(route('consignedUser'), {
-            data: { per_page: newPerPage, search: search },
-            preserveState: true,
-            preserveScroll: true
-        });
-    };
-
-    const handleSearchChange = (e) => {
-        const value = e.target.value;
-        setSearch(value);
+        router.visit(route('consignedUser'), { data: { per_page: newPerPage, search }, preserveState: true, preserveScroll: true });
     };
 
     const handleSearchSubmit = (e) => {
         e.preventDefault();
-        router.visit(route('consignedUser'), {
-            data: { search: search, per_page: perPage },
-            preserveState: true,
-            preserveScroll: true
-        });
+        router.visit(route('consignedUser'), { data: { search, per_page: perPage }, preserveState: true, preserveScroll: true });
     };
 
     const handleClearSearch = () => {
         setSearch('');
-        router.visit(route('consignedUser'), {
-            data: { per_page: perPage },
-            preserveState: true,
-            preserveScroll: true
-        });
+        router.visit(route('consignedUser'), { data: { per_page: perPage }, preserveState: true, preserveScroll: true });
     };
 
     const handleOpenModal = () => {
         setIsEditMode(false);
         setEditUserId(null);
-        setFormData({
-            department: '',
-            prodline: '',
-            username: '',
-            password: ''
-        });
+        setFormData({ department: '', prodline: '', username: '', password: '' });
         setSearchDepartments('');
         setSearchProdlines('');
         setIsModalOpen(true);
@@ -170,98 +128,48 @@ export default function ConsignedUser({ users }) {
         setIsModalOpen(false);
         setIsEditMode(false);
         setEditUserId(null);
-        setFormData({
-            department: '',
-            prodline: '',
-            username: '',
-            password: ''
-        });
+        setFormData({ department: '', prodline: '', username: '', password: '' });
         setSearchDepartments('');
         setSearchProdlines('');
     };
 
     const handleFormChange = (e) => {
         const { name, value } = e.target;
-        setFormData(prev => ({
-            ...prev,
-            [name]: value
-        }));
+        setFormData(prev => ({ ...prev, [name]: value }));
     };
 
     const handleSelectDepartment = (department) => {
-        setFormData(prev => ({
-            ...prev,
-            department
-        }));
+        setFormData(prev => ({ ...prev, department }));
         setSearchDepartments('');
         setFilteredDepartments(departments);
     };
 
     const handleSelectProdline = (prodline) => {
-        setFormData(prev => ({
-            ...prev,
-            prodline
-        }));
+        setFormData(prev => ({ ...prev, prodline }));
         setSearchProdlines('');
         setFilteredProdlines(prodlines);
     };
 
-    const handleClearDepartment = () => {
-        setFormData(prev => ({
-            ...prev,
-            department: ''
-        }));
-        setSearchDepartments('');
-    };
-
-    const handleClearProdline = () => {
-        setFormData(prev => ({
-            ...prev,
-            prodline: ''
-        }));
-        setSearchProdlines('');
-    };
-
     const handleSubmitUser = (e) => {
         e.preventDefault();
-        
-        // Validate form
         if (!formData.department || !formData.prodline || !formData.username) {
             alert('Please fill in all required fields');
             return;
         }
-
-        // For edit mode, password is optional
         if (!isEditMode && !formData.password) {
             alert('Please enter a password');
             return;
         }
-
         const appPrefix = window.location.pathname.split('/')[1];
-
         if (isEditMode) {
-            // Update existing user
             router.put(`/${appPrefix}/consigned-user/${editUserId}`, formData, {
-                onSuccess: () => {
-                    alert('Consigned user updated successfully');
-                    handleCloseModal();
-                },
-                onError: (errors) => {
-                    console.error('Validation errors:', errors);
-                    alert('Failed to update consigned user. Please check the form.');
-                }
+                onSuccess: () => { alert('Consigned user updated successfully'); handleCloseModal(); },
+                onError:   () => alert('Failed to update consigned user. Please check the form.'),
             });
         } else {
-            // Create new user
             router.post(`/${appPrefix}/consigned-user`, formData, {
-                onSuccess: () => {
-                    alert('Consigned user added successfully');
-                    handleCloseModal();
-                },
-                onError: (errors) => {
-                    console.error('Validation errors:', errors);
-                    alert('Failed to add consigned user. Please check the form.');
-                }
+                onSuccess: () => { alert('Consigned user added successfully'); handleCloseModal(); },
+                onError:   () => alert('Failed to add consigned user. Please check the form.'),
             });
         }
     };
@@ -269,77 +177,138 @@ export default function ConsignedUser({ users }) {
     const formatDate = (date) => {
         if (!date) return 'N/A';
         return new Date(date).toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
+            year: 'numeric', month: 'short', day: 'numeric',
+            hour: '2-digit', minute: '2-digit',
         });
     };
+
+    // -------------------- Searchable Select Field --------------------
+    const SearchableSelect = ({ label, required, selectedValue, searchValue, onSearchChange, filteredOptions, onSelect, onClear, placeholder, noResultsText }) => (
+        <div className="form-control w-full mb-4">
+            <label className="label">
+                <span className="label-text font-medium">{label}</span>
+                {required && <span className="label-text-alt" style={{ color: 'oklch(var(--er))' }}>Required</span>}
+            </label>
+
+            {selectedValue ? (
+                // Selected state — show value with clear button
+                <div
+                    className="flex items-center justify-between p-3 rounded-lg"
+                    style={{ border: '1.5px solid oklch(var(--su))', backgroundColor: 'transparent' }}
+                >
+                    <div>
+                        <div className="text-sm font-medium" style={{ color: 'oklch(var(--su))' }}>
+                            <CheckCircleOutlined className="mr-1" />
+                            Selected
+                        </div>
+                        <div className="font-medium">{selectedValue}</div>
+                    </div>
+                    <button type="button" onClick={onClear} className="btn btn-sm btn-circle btn-ghost" title="Clear">
+                        <X className="w-4 h-4" />
+                    </button>
+                </div>
+            ) : (
+                // Search + dropdown
+                <>
+                    <div className="relative">
+                        <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                            <Search className="h-4 w-4 text-base-content/40" />
+                        </div>
+                        <input
+                            type="text"
+                            value={searchValue}
+                            onChange={(e) => onSearchChange(e.target.value)}
+                            placeholder={placeholder}
+                            className="input input-bordered w-full pl-9"
+                            autoComplete="off"
+                        />
+                        {searchValue && (
+                            <button
+                                type="button"
+                                onClick={() => onSearchChange('')}
+                                className="absolute inset-y-0 right-0 flex items-center pr-3 text-base-content/40 hover:text-base-content"
+                            >
+                                <X className="h-4 w-4" />
+                            </button>
+                        )}
+                    </div>
+
+                    {filteredOptions.length > 0 && (
+                        <div className="mt-1 bg-base-100 border border-base-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                            {filteredOptions.map((opt, i) => (
+                                <div
+                                    key={i}
+                                    onClick={() => onSelect(opt)}
+                                    className="p-3 hover:bg-base-200 cursor-pointer border-b border-base-200 last:border-b-0 text-sm"
+                                >
+                                    {opt}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {searchValue && filteredOptions.length === 0 && (
+                        <div className="mt-1 p-2 text-center text-base-content/50 text-sm">{noResultsText}</div>
+                    )}
+                </>
+            )}
+        </div>
+    );
 
     return (
         <AuthenticatedLayout>
             <Head title="Consigned User List" />
 
             <div className="p-6">
+                {/* Page Header */}
                 <div className="flex justify-between items-center mb-6">
                     <h1 className="text-2xl font-bold">Consigned User List</h1>
-                    <button 
-                        onClick={handleOpenModal}
-                        className="btn btn-primary"
-                    >
-                        Add Consigned User
+                    <button onClick={handleOpenModal} className="btn" style={outlineBtnStyle(true)}>
+                        + Add Consigned User
                     </button>
                 </div>
 
                 {/* Controls Row */}
                 <div className="mb-4 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-                    {/* Per Page Selector */}
+                    {/* Per Page */}
                     <div className="flex items-center gap-2">
                         <label className="text-sm font-medium">Show:</label>
-                        <select 
-                            value={perPage} 
-                            onChange={handlePerPageChange}
-                            className="select select-bordered select-sm"
-                        >
-                            <option value="5">5</option>
-                            <option value="10">10</option>
-                            <option value="25">25</option>
-                            <option value="50">50</option>
-                            <option value="100">100</option>
+                        <select value={perPage} onChange={handlePerPageChange} className="select select-bordered select-sm">
+                            {[5, 10, 25, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
                         </select>
                         <span className="text-sm">entries</span>
                     </div>
 
-                    {/* Search Bar */}
+                    {/* Search */}
                     <form onSubmit={handleSearchSubmit} className="flex gap-2 w-full sm:w-auto">
-                        <div className="join w-full sm:w-auto">
+                        <div className="relative w-full sm:w-72">
+                            <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                                <Search className="h-4 w-4 text-base-content/40" />
+                            </div>
                             <input
                                 type="text"
                                 value={search}
-                                onChange={handleSearchChange}
-                                placeholder="Search by department, product line, or username..."
-                                className="input input-bordered input-sm join-item w-full sm:w-64"
+                                onChange={(e) => setSearch(e.target.value)}
+                                placeholder="Search by department, product line..."
+                                className="input input-bordered input-sm w-full pl-9 pr-8"
                             />
-                            <button
-                                type="submit"
-                                className="btn btn-sm btn-primary join-item"
-                            >
-                                Search
-                            </button>
+                            {search && (
+                                <button
+                                    type="button"
+                                    onClick={handleClearSearch}
+                                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-base-content/40 hover:text-base-content"
+                                >
+                                    <X className="h-4 w-4" />
+                                </button>
+                            )}
                         </div>
-                        {search && (
-                            <button
-                                type="button"
-                                onClick={handleClearSearch}
-                                className="btn btn-sm btn-ghost"
-                            >
-                                Clear
-                            </button>
-                        )}
+                        <button type="submit" className="btn btn-sm" style={outlineBtnStyle(true)}>
+                            Search
+                        </button>
                     </form>
                 </div>
 
+                {/* Table */}
                 <div className="overflow-x-auto">
                     <table className="table table-zebra w-full">
                         <thead>
@@ -353,21 +322,27 @@ export default function ConsignedUser({ users }) {
                         <tbody>
                             {users.data && users.data.length > 0 ? (
                                 users.data.map((user) => (
-                                    <tr key={user.id}>
-                                        <td>{formatDate(user.date_created)}</td>
-                                        <td>{user.department}</td>
+                                    <tr key={user.id} className="hover">
+                                        <td className="text-base-content/70 text-sm">{formatDate(user.date_created)}</td>
+                                        <td>
+                                            <span className="badge badge-outline" style={{ backgroundColor: 'transparent' }}>
+                                                {user.department}
+                                            </span>
+                                        </td>
                                         <td>{user.prodline}</td>
                                         <td>
                                             <div className="flex gap-2">
                                                 <button
                                                     onClick={() => handleEdit(user.id)}
-                                                    className="btn btn-sm btn-info"
+                                                    className="btn btn-sm"
+                                                    style={{ border: '1.5px solid oklch(var(--in))', color: 'oklch(var(--in))', backgroundColor: 'transparent' }}
                                                 >
                                                     Edit
                                                 </button>
                                                 <button
                                                     onClick={() => handleDelete(user.id)}
-                                                    className="btn btn-sm btn-error"
+                                                    className="btn btn-sm"
+                                                    style={{ border: '1.5px solid oklch(var(--er))', color: 'oklch(var(--er))', backgroundColor: 'transparent' }}
                                                 >
                                                     Delete
                                                 </button>
@@ -377,7 +352,7 @@ export default function ConsignedUser({ users }) {
                                 ))
                             ) : (
                                 <tr>
-                                    <td colSpan="4" className="text-center">
+                                    <td colSpan="4" className="text-center py-8 text-base-content/50">
                                         No consigned users found
                                     </td>
                                 </tr>
@@ -388,70 +363,53 @@ export default function ConsignedUser({ users }) {
 
                 {/* Pagination */}
                 {users.data && users.data.length > 0 && (
-                    <div className="mt-4 flex justify-between items-center">
-                        <div className="text-sm">
+                    <div className="mt-4 flex justify-between items-center flex-wrap gap-2">
+                        <div className="text-sm text-base-content/60">
                             Showing {users.from} to {users.to} of {users.total} entries
                         </div>
                         <div className="join">
-                            <button 
-                                onClick={() => handlePageChange(users.first_page_url)}
-                                disabled={!users.prev_page_url}
-                                className="join-item btn btn-sm"
-                            >
-                                «
-                            </button>
-                            <button 
-                                onClick={() => handlePageChange(users.prev_page_url)}
-                                disabled={!users.prev_page_url}
-                                className="join-item btn btn-sm"
-                            >
-                                ‹
-                            </button>
-                            
+                            <button onClick={() => handlePageChange(users.first_page_url)} disabled={!users.prev_page_url} className="join-item btn btn-sm btn-outline">«</button>
+                            <button onClick={() => handlePageChange(users.prev_page_url)}  disabled={!users.prev_page_url} className="join-item btn btn-sm btn-outline">‹</button>
+
                             {users.links && Array.isArray(users.links) && users.links.slice(1, -1).map((link, index) => (
                                 <button
                                     key={index}
                                     onClick={() => handlePageChange(link.url)}
-                                    className={`join-item btn btn-sm ${link.active ? 'btn-active' : ''}`}
                                     disabled={!link.url}
+                                    className="join-item btn btn-sm btn-outline"
+                                    style={link.active ? { border: '2px solid currentColor', opacity: 1 } : {}}
                                 >
                                     {link.label}
                                 </button>
                             ))}
-                            
-                            <button 
-                                onClick={() => handlePageChange(users.next_page_url)}
-                                disabled={!users.next_page_url}
-                                className="join-item btn btn-sm"
-                            >
-                                ›
-                            </button>
-                            <button 
-                                onClick={() => handlePageChange(users.last_page_url)}
-                                disabled={!users.next_page_url}
-                                className="join-item btn btn-sm"
-                            >
-                                »
-                            </button>
+
+                            <button onClick={() => handlePageChange(users.next_page_url)} disabled={!users.next_page_url} className="join-item btn btn-sm btn-outline">›</button>
+                            <button onClick={() => handlePageChange(users.last_page_url)} disabled={!users.next_page_url} className="join-item btn btn-sm btn-outline">»</button>
                         </div>
                     </div>
                 )}
             </div>
 
-            {/* Add/Edit User Modal */}
+            {/* ================= ADD / EDIT MODAL ================= */}
             {isModalOpen && (
                 <div className="modal modal-open">
                     <div className="modal-box max-w-md">
-                        <h3 className="font-bold text-lg mb-4">
-                            {isEditMode ? 'Edit Consigned User' : 'Add Consigned User'}
-                        </h3>
-                        
+                        {/* Modal Header */}
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="font-bold text-lg">
+                                {isEditMode ? 'Edit Consigned User' : 'Add Consigned User'}
+                            </h3>
+                            <button className="btn btn-sm btn-circle btn-ghost" onClick={handleCloseModal}>
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
                         <form onSubmit={handleSubmitUser}>
-                            {/* Username Field */}
+                            {/* Username */}
                             <div className="form-control w-full mb-4">
                                 <label className="label">
-                                    <span className="label-text">Username</span>
-                                    <span className="label-text-alt text-red-500">Required</span>
+                                    <span className="label-text font-medium">Username</span>
+                                    <span className="label-text-alt" style={{ color: 'oklch(var(--er))' }}>Required</span>
                                 </label>
                                 <input
                                     type="text"
@@ -464,164 +422,53 @@ export default function ConsignedUser({ users }) {
                                 />
                             </div>
 
-                            {/* Department - Search and Select */}
-                            <div className="form-control w-full mb-4">
-                                <label className="label">
-                                    <span className="label-text">Department</span>
-                                    <span className="label-text-alt text-red-500">Required</span>
-                                </label>
-                                
-                                {/* Selected value display */}
-                                {formData.department && (
-                                    <div className="mb-2 flex items-center justify-between bg-base-200 p-2 rounded">
-                                        <span className="font-medium">{formData.department}</span>
-                                        <button 
-                                            type="button"
-                                            onClick={handleClearDepartment}
-                                            className="btn btn-xs btn-ghost"
-                                        >
-                                            ×
-                                        </button>
-                                    </div>
-                                )}
-                                
-                                {/* Search input */}
-                                {!formData.department && (
-                                    <>
-                                        <input
-                                            type="text"
-                                            value={searchDepartments}
-                                            onChange={(e) => setSearchDepartments(e.target.value)}
-                                            placeholder="Search department..."
-                                            className="input input-bordered w-full"
-                                        />
-                                        
-                                        {/* Dropdown options */}
-                                        {searchDepartments && filteredDepartments.length > 0 && (
-                                            <div className="mt-1 bg-base-100 border border-base-300 rounded shadow-lg max-h-48 overflow-y-auto">
-                                                {filteredDepartments.map((dept, index) => (
-                                                    <div
-                                                        key={index}
-                                                        onClick={() => handleSelectDepartment(dept)}
-                                                        className="p-2 hover:bg-base-200 cursor-pointer"
-                                                    >
-                                                        {dept}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                        
-                                        {/* Show all departments if no search */}
-                                        {!searchDepartments && departments.length > 0 && (
-                                            <div className="mt-1 bg-base-100 border border-base-300 rounded shadow-lg max-h-48 overflow-y-auto">
-                                                {departments.map((dept, index) => (
-                                                    <div
-                                                        key={index}
-                                                        onClick={() => handleSelectDepartment(dept)}
-                                                        className="p-2 hover:bg-base-200 cursor-pointer"
-                                                    >
-                                                        {dept}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                        
-                                        {/* No results */}
-                                        {searchDepartments && filteredDepartments.length === 0 && (
-                                            <div className="mt-1 p-2 text-center text-gray-500">
-                                                No departments found
-                                            </div>
-                                        )}
-                                    </>
-                                )}
-                            </div>
+                            {/* Department */}
+                            <SearchableSelect
+                                label="Department"
+                                required
+                                selectedValue={formData.department}
+                                searchValue={searchDepartments}
+                                onSearchChange={setSearchDepartments}
+                                filteredOptions={filteredDepartments}
+                                onSelect={handleSelectDepartment}
+                                onClear={() => { setFormData(p => ({ ...p, department: '' })); setSearchDepartments(''); }}
+                                placeholder="Search department..."
+                                noResultsText="No departments found"
+                            />
 
-                            {/* Product Line - Search and Select */}
-                            <div className="form-control w-full mb-4">
-                                <label className="label">
-                                    <span className="label-text">Product Line</span>
-                                    <span className="label-text-alt text-red-500">Required</span>
-                                </label>
-                                
-                                {/* Selected value display */}
-                                {formData.prodline && (
-                                    <div className="mb-2 flex items-center justify-between bg-base-200 p-2 rounded">
-                                        <span className="font-medium">{formData.prodline}</span>
-                                        <button 
-                                            type="button"
-                                            onClick={handleClearProdline}
-                                            className="btn btn-xs btn-ghost"
-                                        >
-                                            ×
-                                        </button>
-                                    </div>
-                                )}
-                                
-                                {/* Search input */}
-                                {!formData.prodline && (
-                                    <>
-                                        <input
-                                            type="text"
-                                            value={searchProdlines}
-                                            onChange={(e) => setSearchProdlines(e.target.value)}
-                                            placeholder="Search product line..."
-                                            className="input input-bordered w-full"
-                                        />
-                                        
-                                        {/* Dropdown options */}
-                                        {searchProdlines && filteredProdlines.length > 0 && (
-                                            <div className="mt-1 bg-base-100 border border-base-300 rounded shadow-lg max-h-48 overflow-y-auto">
-                                                {filteredProdlines.map((line, index) => (
-                                                    <div
-                                                        key={index}
-                                                        onClick={() => handleSelectProdline(line)}
-                                                        className="p-2 hover:bg-base-200 cursor-pointer"
-                                                    >
-                                                        {line}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                        
-                                        {/* Show all prodlines if no search */}
-                                        {!searchProdlines && prodlines.length > 0 && (
-                                            <div className="mt-1 bg-base-100 border border-base-300 rounded shadow-lg max-h-48 overflow-y-auto">
-                                                {prodlines.map((line, index) => (
-                                                    <div
-                                                        key={index}
-                                                        onClick={() => handleSelectProdline(line)}
-                                                        className="p-2 hover:bg-base-200 cursor-pointer"
-                                                    >
-                                                        {line}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                        
-                                        {/* No results */}
-                                        {searchProdlines && filteredProdlines.length === 0 && (
-                                            <div className="mt-1 p-2 text-center text-gray-500">
-                                                No product lines found
-                                            </div>
-                                        )}
-                                    </>
-                                )}
-                            </div>
+                            {/* Product Line */}
+                            <SearchableSelect
+                                label="Product Line"
+                                required
+                                selectedValue={formData.prodline}
+                                searchValue={searchProdlines}
+                                onSearchChange={setSearchProdlines}
+                                filteredOptions={filteredProdlines}
+                                onSelect={handleSelectProdline}
+                                onClear={() => { setFormData(p => ({ ...p, prodline: '' })); setSearchProdlines(''); }}
+                                placeholder="Search product line..."
+                                noResultsText="No product lines found"
+                            />
 
                             {/* Password */}
                             <div className="form-control w-full mb-6">
                                 <label className="label">
-                                    <span className="label-text">
-                                        Password {isEditMode && <span className="text-xs text-gray-500">(leave blank to keep current)</span>}
+                                    <span className="label-text font-medium">
+                                        Password{' '}
+                                        {isEditMode && (
+                                            <span className="text-xs text-base-content/50 ml-1">(leave blank to keep current)</span>
+                                        )}
                                     </span>
-                                    {!isEditMode && <span className="label-text-alt text-red-500">Required</span>}
+                                    {!isEditMode && (
+                                        <span className="label-text-alt" style={{ color: 'oklch(var(--er))' }}>Required</span>
+                                    )}
                                 </label>
                                 <input
                                     type="password"
                                     name="password"
                                     value={formData.password}
                                     onChange={handleFormChange}
-                                    placeholder={isEditMode ? "Enter new password (optional)" : "Enter password"}
+                                    placeholder={isEditMode ? 'Enter new password (optional)' : 'Enter password'}
                                     className="input input-bordered w-full"
                                     required={!isEditMode}
                                 />
@@ -629,17 +476,10 @@ export default function ConsignedUser({ users }) {
 
                             {/* Modal Actions */}
                             <div className="modal-action">
-                                <button 
-                                    type="button"
-                                    onClick={handleCloseModal}
-                                    className="btn btn-ghost"
-                                >
+                                <button type="button" onClick={handleCloseModal} className="btn" style={outlineBtnStyle(false)}>
                                     Cancel
                                 </button>
-                                <button 
-                                    type="submit"
-                                    className="btn btn-primary"
-                                >
+                                <button type="submit" className="btn" style={outlineBtnStyle(true)}>
                                     {isEditMode ? 'Update User' : 'Add User'}
                                 </button>
                             </div>

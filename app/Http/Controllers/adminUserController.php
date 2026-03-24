@@ -65,14 +65,15 @@ class adminUserController extends Controller
             'employee_id' => 'required',
             'employee_name' => 'required',
             'user_type' => 'required',
-            'username' => 'required|unique:store_user,log_user',
+            'username' => 'required|unique:store_user,log_username',
             'password' => 'required|min:6',
         ]);
 
         StoreUser::create([
-            'log_user' => $request->username,
+            'log_user' => $request->employee_name,
+            'log_username' => $request->username,
             'log_category' => $request->user_type,
-            'log_password' => bcrypt($request->password),
+            'log_password' => $request->password,
             'date_created' => now(),
         ]);
 
@@ -86,8 +87,9 @@ class adminUserController extends Controller
             
             return response()->json([
                 'id' => $user->id,
-                'employee_id' => $user->id, // or whatever field stores employee_id
+                'employee_id' => $user->id,
                 'log_user' => $user->log_user,
+                'log_username' => $user->log_username,
                 'log_category' => $user->log_category,
                 'success' => true
             ]);
@@ -107,19 +109,20 @@ class adminUserController extends Controller
             'employee_id' => 'required',
             'employee_name' => 'required',
             'user_type' => 'required',
-            'username' => 'required|unique:store_user,log_user,' . $id,
+            'username' => 'required|unique:store_user,log_username,' . $id,
             'password' => 'nullable|min:6',
         ]);
 
         $updateData = [
-            'log_user' => $request->username,
+            'log_user' => $request->employee_name,
+            'log_username' => $request->username,
             'log_category' => $request->user_type,
             'date_updated' => now(),
         ];
 
         // Only update password if provided
-        if ($request->filled('password')) {
-            $updateData['log_password'] = bcrypt($request->password);
+    if ($request->filled('password')) {
+            $updateData['log_password'] = $request->password;
         }
 
         $user->update($updateData);
