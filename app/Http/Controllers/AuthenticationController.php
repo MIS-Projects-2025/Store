@@ -25,7 +25,7 @@ public function logout(Request $request)
         $redirectUrl = urlencode(route('dashboard'));
 
         return redirect(
-            "http://192.168.1.27:8080/authify/public/logout?token={$token}&redirect={$redirectUrl}"
+            "http://192.168.2.221:8200/logout?token={$token}&redirect={$redirectUrl}"
         );
     }
 }

@@ -78,7 +78,7 @@ export default function Sidebar() {
                     text-white
                 `}
                 style={{
-                    backgroundColor: "#8549a7"
+                    backgroundColor: "#8549a7",
                 }}
             >
                 {/* LOGO */}
@@ -87,8 +87,8 @@ export default function Sidebar() {
                         href={route("dashboard")}
                         className="focus:outline-none focus:ring-2 focus:ring-white rounded"
                     >
-                        <img 
-                            src="/storage/telford_logo1.jpg" 
+                        <img
+                            src="/Storage/telford_logo1.jpg"
                             alt={formattedAppName}
                             className="w-full h-auto max-w-[130px]"
                         />
@@ -96,7 +96,10 @@ export default function Sidebar() {
                 </div>
 
                 {/* Navigation - takes up remaining space */}
-                <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "none" }}>
+                <div
+                    className="flex-1 overflow-y-auto"
+                    style={{ scrollbarWidth: "none" }}
+                >
                     <Navigation />
                 </div>
 
