@@ -919,6 +919,10 @@ export default function MaterialIssuance() {
                                                         value={issuedQuantities[item.id] ?? ""}
                                                         placeholder="Qty"
                                                         disabled={item.mrs_status?.toLowerCase() === "cancelled"}
+                                                        ref={(el) => {
+                                                            if (!el) return;
+                                                            el.addEventListener("wheel", (e) => e.preventDefault(), { passive: false });
+                                                        }}
                                                         onChange={(e) => {
                                                             const raw = e.target.value;
                                                             // Allow free typing — only store the raw string
@@ -1296,6 +1300,10 @@ export default function MaterialIssuance() {
                                         value={replacementQuantity === "" ? "" : replacementQuantity}
                                         placeholder="Enter qty..."
                                         disabled={isProcessing}
+                                        ref={(el) => {
+                                            if (!el) return;
+                                            el.addEventListener("wheel", (e) => e.preventDefault(), { passive: false });
+                                        }}
                                         onChange={(e) => {
                                             const raw = e.target.value;
                                             if (raw === "") { setReplacementQuantity(""); return; }
