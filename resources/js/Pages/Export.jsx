@@ -231,33 +231,51 @@ const Pagination = ({ currentPage, totalPages, onPageChange }) => {
     );
 };
 
+// ─── Action badge config ───────────────────────────────────────────────────────
+const ACTION_LABELS = {
+    issued:         { label: 'Issued',      badge: 'badge-error' },
+    returned:       { label: 'Returned',    badge: 'badge-success' },
+    quantity_added: { label: 'Stock Added', badge: 'badge-info' },
+    updated:        { label: 'Updated',     badge: 'badge-warning' },
+    no_action:      { label: 'No Action',   badge: 'badge-ghost opacity-40' },  // ← add this
+
+};
+
 // ─── Main Export Component ─────────────────────────────────────────────────────
 export default function Export({ tableData }) {
     const [activeMainTab, setActiveMainTab] = useState("consumable");
     const [activeSubTabs, setActiveSubTabs] = useState({
-        consumable: "inventory", supplies: "inventory", consigned: "inventory"
+        consumable: "inventory", supplies: "inventory", consigned: "inventory",
     });
 
     const [currentPages, setCurrentPages] = useState({
         consumable_inventory: 1, consumable_issuance: 1, consumable_return: 1,
         supplies_inventory: 1,   supplies_issuance: 1,   supplies_return: 1,
-        consigned_inventory: 1,  consigned_issuance: 1,  consigned_return: 1,
+        consigned_inventory: 1,  consigned_inventoryHistory: 1,
+        consigned_inventoryHistory_historyPage: 1,
+        consigned_issuance: 1,   consigned_return: 1,
     });
 
     const [searchTerms, setSearchTerms] = useState({
         consumable_inventory: '', consumable_issuance: '', consumable_return: '',
         supplies_inventory: '',   supplies_issuance: '',   supplies_return: '',
-        consigned_inventory: '',  consigned_issuance: '',  consigned_return: '',
+        consigned_inventory: '',  consigned_inventoryHistory: '',
+        consigned_inventoryHistory_history: '',
+        consigned_issuance: '',   consigned_return: '',
     });
 
     const [filterStates, setFilterStates] = useState({
-        consumable_issuance: { filterType: 'all', selectedYear: '', selectedMonth: '', selectedWeek: '' },
-        consumable_return:   { filterType: 'all', selectedYear: '', selectedMonth: '', selectedWeek: '' },
-        supplies_issuance:   { filterType: 'all', selectedYear: '', selectedMonth: '', selectedWeek: '' },
-        supplies_return:     { filterType: 'all', selectedYear: '', selectedMonth: '', selectedWeek: '' },
-        consigned_issuance:  { filterType: 'all', selectedYear: '', selectedMonth: '', selectedWeek: '' },
-        consigned_return:    { filterType: 'all', selectedYear: '', selectedMonth: '', selectedWeek: '' },
+        consumable_issuance:        { filterType: 'all', selectedYear: '', selectedMonth: '', selectedWeek: '' },
+        consumable_return:          { filterType: 'all', selectedYear: '', selectedMonth: '', selectedWeek: '' },
+        supplies_issuance:          { filterType: 'all', selectedYear: '', selectedMonth: '', selectedWeek: '' },
+        supplies_return:            { filterType: 'all', selectedYear: '', selectedMonth: '', selectedWeek: '' },
+        consigned_inventoryHistory: { filterType: 'all', selectedYear: '', selectedMonth: '', selectedWeek: '', selectedDay: '' },
+        consigned_issuance:         { filterType: 'all', selectedYear: '', selectedMonth: '', selectedWeek: '' },
+        consigned_return:           { filterType: 'all', selectedYear: '', selectedMonth: '', selectedWeek: '' },
     });
+
+    // ── Inventory History: selected items (Set of itemCodes) ─────────────────
+    const [selectedHistoryItems, setSelectedHistoryItems] = useState(new Set());
 
     const itemsPerPage = 10;
 
@@ -285,6 +303,8 @@ export default function Export({ tableData }) {
                 return year === filters.selectedYear && (!filters.selectedMonth || month === filters.selectedMonth);
             if (filters.filterType === 'week'  && filters.selectedYear)
                 return year === filters.selectedYear && (!filters.selectedWeek || week === filters.selectedWeek);
+            if (filters.filterType === 'day' && filters.selectedDay)
+                return item.snapshotDate === filters.selectedDay;
             return true;
         });
     };
@@ -314,12 +334,39 @@ export default function Export({ tableData }) {
         return { years, months, weeks };
     };
 
+    const getAvailableHistoryFilters = (data) => {
+        const yearsSet = new Set(), monthsSet = new Set(), weeksSet = new Set();
+        data.forEach(item => {
+            (item.snapshots || []).forEach(snapshot => {
+                if (snapshot.snapshotDate) {
+                    const date  = new Date(snapshot.snapshotDate);
+                    const year  = date.getFullYear();
+                    const month = date.getMonth() + 1;
+                    const week  = getWeekNumber(date);
+                    yearsSet.add(year);
+                    monthsSet.add(`${year}-${month.toString().padStart(2, '0')}`);
+                    weeksSet.add(`${year}-${week.toString().padStart(2, '0')}`);
+                }
+            });
+        });
+        const years  = Array.from(yearsSet).sort((a, b) => b - a);
+        const months = Array.from(monthsSet).sort((a, b) => b.localeCompare(a)).map(s => {
+            const [year, month] = s.split('-');
+            return { value: month, label: `${getMonthName(parseInt(month))} ${year}` };
+        });
+        const weeks = Array.from(weeksSet).sort((a, b) => b.localeCompare(a)).map(s => {
+            const [year, week] = s.split('-');
+            return { value: week, label: `Year ${year}, Week ${week}` };
+        });
+        return { years, months, weeks };
+    };
+
     const getPaginatedData = (data, pageKey) => {
-        const page  = currentPages[pageKey];
+        const page  = currentPages[pageKey] || 1;
         const start = (page - 1) * itemsPerPage;
         return {
-            data:       data.slice(start, start + itemsPerPage),
-            totalPages: Math.ceil(data.length / itemsPerPage) || 1,
+            data:        data.slice(start, start + itemsPerPage),
+            totalPages:  Math.ceil(data.length / itemsPerPage) || 1,
             currentPage: page,
             totalItems:  data.length,
         };
@@ -341,9 +388,10 @@ export default function Export({ tableData }) {
     ];
 
     const subTabs = [
-        { id: "inventory", label: "Inventory" },
-        { id: "issuance",  label: "Issuance" },
-        { id: "return",    label: "Return" },
+        { id: "inventory",        label: "Inventory" },
+        { id: "inventoryHistory", label: "Inventory History" },
+        { id: "issuance",         label: "Issuance" },
+        { id: "return",           label: "Return" },
     ];
 
     const currentSubTab  = activeSubTabs[activeMainTab];
@@ -360,8 +408,10 @@ export default function Export({ tableData }) {
     const consignedInventoryData  = tableData?.consigned?.inventory  || [];
     const consignedIssuanceData   = tableData?.consigned?.issuance   || [];
     const consignedReturnData     = tableData?.consigned?.return     || [];
+    const consignedInventoryHistoryData = tableData?.consigned?.inventoryHistory || [];
 
     const renderContent = () => {
+
         // ===== CONSUMABLE INVENTORY =====
         if (activeMainTab === "consumable" && currentSubTab === "inventory") {
             const tableKey     = 'consumable_inventory';
@@ -435,7 +485,7 @@ export default function Export({ tableData }) {
                                     <th>Department</th><th>Prodline</th><th>Machine No</th>
                                     <th>MRS No</th><th>Issued By</th><th>Item Code</th>
                                     <th>Material Description</th><th>Long Description</th><th>Serial</th>
-<th>Quantity</th><th>Request Qty</th><th>Issued Qty</th><th>Remarks</th><th>SOH</th><th>Delivered At</th>
+                                    <th>Quantity</th><th>Request Qty</th><th>Issued Qty</th><th>Remarks</th><th>SOH</th><th>Delivered At</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -599,7 +649,7 @@ export default function Export({ tableData }) {
                                     <th>Department</th><th>Prodline</th><th>Machine No</th>
                                     <th>MRS No</th><th>Issued By</th><th>Item Code</th>
                                     <th>Material Description</th><th>Long Description</th>
-<th>Quantity</th><th>Request Qty</th><th>Issued Qty</th><th>Remarks</th><th>SOH</th><th>Delivered At</th>
+                                    <th>Quantity</th><th>Request Qty</th><th>Issued Qty</th><th>Remarks</th><th>SOH</th><th>Delivered At</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -700,7 +750,7 @@ export default function Export({ tableData }) {
                 <CardWrap>
                     <CardHeader title={title} totalItems={totalItems} originalCount={consignedInventoryData.length}
                         searchKey={tableKey} searchTerms={searchTerms}
-                        onExport={() => handleExportCSV(consignedInventoryData, searchedData, !!searchTerms[tableKey], 'consigned_inventory')}
+                        onExport={() => exportToCSV(searchTerms[tableKey] ? searchedData : consignedInventoryData, 'consigned_inventory')}
                         exportDisabled={consignedInventoryData.length === 0} />
                     <div className="mb-4">
                         <SearchBar value={searchTerms[tableKey]} onChange={(val) => updateSearchTerm(tableKey, val)} placeholder="Search by item code, supplier, category..." />
@@ -747,6 +797,466 @@ export default function Export({ tableData }) {
             );
         }
 
+        // ===== CONSIGNED INVENTORY HISTORY (NEW UI) =====
+        if (activeMainTab === "consigned" && currentSubTab === "inventoryHistory") {
+            const tableKey    = 'consigned_inventoryHistory';
+            const histPageKey = 'consigned_inventoryHistory_historyPage';
+            const histSearchKey = 'consigned_inventoryHistory_history';
+            const filters     = filterStates[tableKey];
+            const availableFilters = getAvailableHistoryFilters(consignedInventoryHistoryData);
+            const allItems    = consignedInventoryHistoryData;
+
+            // ── Build flat action rows for selected items filtered by date ──────
+            const buildActionRows = (items) => {
+    const rows = [];
+
+    items.forEach(item => {
+        let snapshots = [...(item.snapshots || [])];
+        if (!snapshots.length) return;
+
+        // Sort ascending for fill logic
+        const sorted = [...snapshots].sort((a, b) =>
+            new Date(a.snapshotDate + ' ' + a.snapshotTime) - new Date(b.snapshotDate + ' ' + b.snapshotTime)
+        );
+
+        // Determine date range from current filter
+        let rangeStart = null;
+        let rangeEnd   = null;
+        const f = filters;
+
+        if (f.filterType === 'day' && f.selectedDay) {
+            rangeStart = new Date(f.selectedDay);
+            rangeEnd   = new Date(f.selectedDay);
+        } else if (f.filterType === 'year' && f.selectedYear) {
+            rangeStart = new Date(`${f.selectedYear}-01-01`);
+            rangeEnd   = new Date(`${f.selectedYear}-12-31`);
+        } else if (f.filterType === 'month' && f.selectedYear && f.selectedMonth) {
+            const y = parseInt(f.selectedYear);
+            const m = parseInt(f.selectedMonth);
+            rangeStart = new Date(y, m - 1, 1);
+            rangeEnd   = new Date(y, m, 0); // last day of month
+        } else if (f.filterType === 'week' && f.selectedYear && f.selectedWeek) {
+            // ISO week: find the Monday of that week
+            const jan4 = new Date(parseInt(f.selectedYear), 0, 4);
+            const mondayOfWeek1 = new Date(jan4);
+            mondayOfWeek1.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7));
+            rangeStart = new Date(mondayOfWeek1);
+            rangeStart.setDate(mondayOfWeek1.getDate() + (parseInt(f.selectedWeek) - 1) * 7);
+            rangeEnd   = new Date(rangeStart);
+            rangeEnd.setDate(rangeStart.getDate() + 6);
+        }
+
+        if (!rangeStart || !rangeEnd) {
+            // No date fill for "all time" — just push real rows
+            sorted.forEach(s => rows.push({
+                user:                s.user || '—',
+                snapshotDate:        s.snapshotDate,
+                snapshotTime:        s.snapshotTime,
+                itemCode:            item.itemCode,
+                materialDescription: item.materialDescription,
+                action:              s.action,
+                oldQty:              s.oldQty ?? '—',
+                qty:                 s.qty,
+            }));
+            return;
+        }
+
+// Helper: date string to comparable key
+const toKey = (d) => d.toISOString().split('T')[0];
+
+// The earliest date this item has ANY history (its "creation" floor)
+const itemBirthDate = sorted[0].snapshotDate;
+
+// Today's date ceiling — don't show future dates
+const todayKey = toKey(new Date());
+
+// Build every day in range, clamped to [itemBirthDate, today]
+const allDates = [];
+const cur = new Date(rangeStart);
+while (cur <= rangeEnd) {
+    const key = toKey(new Date(cur));
+    if (key >= itemBirthDate && key <= todayKey) {
+        allDates.push(key);
+    }
+    cur.setDate(cur.getDate() + 1);
+}
+
+// Group real snapshots by date
+const snapshotsByDate = {};
+sorted.forEach(s => {
+    if (!snapshotsByDate[s.snapshotDate]) snapshotsByDate[s.snapshotDate] = [];
+    snapshotsByDate[s.snapshotDate].push(s);
+});
+
+// Find the last known qty BEFORE the range starts (carry-in),
+// only from dates >= itemBirthDate
+let carryQty = null;
+sorted.forEach(s => {
+    if (s.snapshotDate >= itemBirthDate && s.snapshotDate < toKey(rangeStart)) {
+        carryQty = s.qty;
+    }
+});
+
+// If rangeStart is on or before birth date, no carry-in applies
+if (toKey(rangeStart) <= itemBirthDate) carryQty = null;
+
+allDates.forEach(dateKey => {
+    if (snapshotsByDate[dateKey]) {
+        // Real actions on this date
+        snapshotsByDate[dateKey].forEach(s => {
+            rows.push({
+                user:                s.user || '—',
+                snapshotDate:        s.snapshotDate,
+                snapshotTime:        s.snapshotTime,
+                itemCode:            item.itemCode,
+                materialDescription: item.materialDescription,
+                action:              s.action,
+                oldQty:              s.oldQty ?? carryQty ?? '—',
+                qty:                 s.qty,
+            });
+            carryQty = s.qty;
+        });
+    } else {
+        // No action — only fill if qty is already established
+        if (carryQty !== null) {
+            rows.push({
+                user:                '—',
+                snapshotDate:        dateKey,
+                snapshotTime:        '—',
+                itemCode:            item.itemCode,
+                materialDescription: item.materialDescription,
+                action:              'no_action',
+                oldQty:              carryQty,
+                qty:                 carryQty,
+            });
+        }
+    }
+});
+    });
+
+    
+    return rows.sort((a, b) => {
+        // 1st: item code ascending
+        if (a.itemCode < b.itemCode) return -1;
+        if (a.itemCode > b.itemCode) return 1;
+        // 2nd: date ascending
+        if (a.snapshotDate < b.snapshotDate) return -1;
+        if (a.snapshotDate > b.snapshotDate) return 1;
+        // 3rd: time ascending (no-action rows go first within the day)
+        const tA = a.snapshotTime === '—' ? '00:00:00' : a.snapshotTime;
+        const tB = b.snapshotTime === '—' ? '00:00:00' : b.snapshotTime;
+        return tA.localeCompare(tB);
+    });
+};
+
+            // Items list (left panel)
+            const searchedItems = applySearch(allItems, searchTerms[tableKey]);
+            const { data: pagedItems, totalPages: itemTotalPages, currentPage: itemCurrentPage, totalItems: itemTotalCount }
+                = getPaginatedData(searchedItems, tableKey);
+
+            // History rows for selected items
+            const selectedItems = allItems.filter(i => selectedHistoryItems.has(i.itemCode));
+            const historyRows   = buildActionRows(selectedItems);
+            const searchedRows  = applySearch(historyRows, searchTerms[histSearchKey] || '');
+            const { data: pagedRows, totalPages: rowTotalPages, currentPage: rowCurrentPage, totalItems: rowTotalCount }
+                = getPaginatedData(searchedRows, histPageKey);
+
+            const someSelected      = selectedHistoryItems.size > 0;
+            const allOnPageSelected = pagedItems.length > 0 && pagedItems.every(i => selectedHistoryItems.has(i.itemCode));
+
+            const toggleItem = (itemCode) => {
+                setSelectedHistoryItems(prev => {
+                    const next = new Set(prev);
+                    if (next.has(itemCode)) next.delete(itemCode); else next.add(itemCode);
+                    return next;
+                });
+                setCurrentPages(prev => ({ ...prev, [histPageKey]: 1 }));
+            };
+
+            const togglePageAll = () => {
+                setSelectedHistoryItems(prev => {
+                    const next = new Set(prev);
+                    if (allOnPageSelected) { pagedItems.forEach(i => next.delete(i.itemCode)); }
+                    else { pagedItems.forEach(i => next.add(i.itemCode)); }
+                    return next;
+                });
+            };
+
+            const selectAll = () => setSelectedHistoryItems(new Set(searchedItems.map(i => i.itemCode)));
+            const clearAll  = () => {
+                setSelectedHistoryItems(new Set());
+                setCurrentPages(prev => ({ ...prev, [histPageKey]: 1 }));
+            };
+
+            const handleExportHistory = () => {
+                const exportData = searchedRows.map(r => ({
+                    user:                r.user,
+                    date:                r.snapshotDate,
+                    time:                r.snapshotTime,
+                    itemCode:            r.itemCode,
+                    materialDescription: r.materialDescription,
+                    action:              ACTION_LABELS[r.action]?.label || r.action,
+                    quantity:            r.oldQty,
+                    newQuantity:         r.qty,
+                }));
+                exportToCSV(exportData, 'consigned_inventory_history');
+            };
+
+            // Selected items preview label
+            const selectedCodes = [...selectedHistoryItems];
+            const previewLabel  = selectedCodes.length === 0 ? '' :
+                selectedCodes.slice(0, 2).join(', ') + (selectedCodes.length > 2 ? ` +${selectedCodes.length - 2} more` : '');
+
+            return (
+                <CardWrap>
+                    {/* ── Header ── */}
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-bold">{title}</h3>
+                        <div className="flex items-center gap-4">
+                            {someSelected && (
+                                <span className="text-sm opacity-60">
+                                    {selectedHistoryItems.size} item{selectedHistoryItems.size !== 1 ? 's' : ''} selected
+                                    {rowTotalCount > 0 && ` · ${rowTotalCount} record${rowTotalCount !== 1 ? 's' : ''}`}
+                                </span>
+                            )}
+                            <button onClick={handleExportHistory} className="btn btn-sm btn-outline" disabled={searchedRows.length === 0}>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                Export CSV
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* ── Date Filter ── */}
+                    <div className="flex flex-wrap gap-4 items-center mb-4 p-4 border border-base-content/20 rounded-lg">
+                        <div className="form-control">
+                            <label className="label"><span className="label-text font-semibold">Filter by:</span></label>
+                            <select className="select select-bordered select-sm w-40" value={filters.filterType}
+                                onChange={(e) => updateFilterState(tableKey, { filterType: e.target.value, selectedYear: '', selectedMonth: '', selectedWeek: '', selectedDay: '' })}>
+                                <option value="all">All Time</option>
+                                <option value="year">Year</option>
+                                <option value="month">Month</option>
+                                <option value="week">Week</option>
+                                <option value="day">Day</option>
+                            </select>
+                        </div>
+                        {filters.filterType === 'year' && (
+                            <div className="form-control">
+                                <label className="label"><span className="label-text">Year:</span></label>
+                                <select className="select select-bordered select-sm w-32" value={filters.selectedYear}
+                                    onChange={(e) => updateFilterState(tableKey, { selectedYear: e.target.value })}>
+                                    <option value="">All Years</option>
+                                    {availableFilters.years.map(y => <option key={y} value={y}>{y}</option>)}
+                                </select>
+                            </div>
+                        )}
+                        {filters.filterType === 'month' && (<>
+                            <div className="form-control">
+                                <label className="label"><span className="label-text">Year:</span></label>
+                                <select className="select select-bordered select-sm w-32" value={filters.selectedYear}
+                                    onChange={(e) => updateFilterState(tableKey, { selectedYear: e.target.value, selectedMonth: '' })}>
+                                    <option value="">Select Year</option>
+                                    {availableFilters.years.map(y => <option key={y} value={y}>{y}</option>)}
+                                </select>
+                            </div>
+                            {filters.selectedYear && (
+                                <div className="form-control">
+                                    <label className="label"><span className="label-text">Month:</span></label>
+                                    <select className="select select-bordered select-sm w-40" value={filters.selectedMonth}
+                                        onChange={(e) => updateFilterState(tableKey, { selectedMonth: e.target.value })}>
+                                        <option value="">All Months</option>
+                                        {availableFilters.months.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                                    </select>
+                                </div>
+                            )}
+                        </>)}
+                        {filters.filterType === 'week' && (<>
+                            <div className="form-control">
+                                <label className="label"><span className="label-text">Year:</span></label>
+                                <select className="select select-bordered select-sm w-32" value={filters.selectedYear}
+                                    onChange={(e) => updateFilterState(tableKey, { selectedYear: e.target.value, selectedWeek: '' })}>
+                                    <option value="">Select Year</option>
+                                    {availableFilters.years.map(y => <option key={y} value={y}>{y}</option>)}
+                                </select>
+                            </div>
+                            {filters.selectedYear && (
+                                <div className="form-control">
+                                    <label className="label"><span className="label-text">Week:</span></label>
+                                    <select className="select select-bordered select-sm w-32" value={filters.selectedWeek}
+                                        onChange={(e) => updateFilterState(tableKey, { selectedWeek: e.target.value })}>
+                                        <option value="">All Weeks</option>
+                                        {availableFilters.weeks.map(w => <option key={w.value} value={w.value}>Week {w.value} ({w.label})</option>)}
+                                    </select>
+                                </div>
+                            )}
+                        </>)}
+                        {filters.filterType === 'day' && (
+                            <div className="form-control">
+                                <label className="label"><span className="label-text">Date:</span></label>
+                                <input type="date" className="input input-bordered input-sm w-44"
+                                    value={filters.selectedDay}
+                                    onChange={(e) => updateFilterState(tableKey, { selectedDay: e.target.value })} />
+                            </div>
+                        )}
+                        <div className="flex items-end">
+                            <button onClick={() => updateFilterState(tableKey, { filterType: 'all', selectedYear: '', selectedMonth: '', selectedWeek: '', selectedDay: '' })}
+                                className="btn btn-sm btn-ghost">Clear Filters</button>
+                        </div>
+                    </div>
+
+                    {/* ── Two-panel layout ── */}
+                    <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+
+                        {/* LEFT: Item selector */}
+                        <div className="lg:col-span-2 border border-base-content/20 rounded-lg p-3 flex flex-col gap-3">
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm font-semibold opacity-70 uppercase tracking-wide">
+                                    Select Items
+                                </span>
+                                <div className="flex gap-1">
+                                    <button onClick={selectAll} className="btn btn-xs btn-ghost">Select All</button>
+                                    <button onClick={clearAll} className="btn btn-xs btn-ghost text-error" disabled={!someSelected}>Clear</button>
+                                </div>
+                            </div>
+
+                            <SearchBar
+                                value={searchTerms[tableKey]}
+                                onChange={(val) => updateSearchTerm(tableKey, val)}
+                                placeholder="Search items..."
+                            />
+
+                            <div className="overflow-x-auto">
+                                <table className="table table-sm table-zebra [&_th]:border-y [&_th]:border-base-content/20 [&_td]:border-y [&_td]:border-base-content/20">
+                                    <thead>
+                                        <tr>
+                                            <th className="w-8">
+                                                <input type="checkbox" className="checkbox checkbox-sm"
+                                                    checked={allOnPageSelected}
+                                                    onChange={togglePageAll} />
+                                            </th>
+                                            <th>Item Code</th>
+                                            <th>Description</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {pagedItems.length > 0 ? pagedItems.map((item, idx) => (
+                                            <tr key={idx}
+                                                className={`cursor-pointer hover:bg-base-200 ${selectedHistoryItems.has(item.itemCode) ? 'bg-primary/10' : ''}`}
+                                                onClick={() => toggleItem(item.itemCode)}
+                                            >
+                                                <td onClick={e => e.stopPropagation()}>
+                                                    <input type="checkbox" className="checkbox checkbox-sm checkbox-primary"
+                                                        checked={selectedHistoryItems.has(item.itemCode)}
+                                                        onChange={() => toggleItem(item.itemCode)} />
+                                                </td>
+                                                <td className="font-semibold text-xs">{item.itemCode}</td>
+                                                <td className="text-xs">{item.materialDescription}</td>
+                                            </tr>
+                                        )) : (
+                                            <tr><td colSpan="3" className="text-center opacity-50 text-xs py-4">No items found</td></tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {itemTotalPages > 1 && (
+                                <Pagination currentPage={itemCurrentPage} totalPages={itemTotalPages}
+                                    onPageChange={(p) => handlePageChange(tableKey, p)} />
+                            )}
+                            <div className="text-xs opacity-50 text-center">{itemTotalCount} items total</div>
+                        </div>
+
+                        {/* RIGHT: History table */}
+                        <div className="lg:col-span-3 border border-base-content/20 rounded-lg p-3 flex flex-col gap-3">
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                                <span className="text-sm font-semibold opacity-70 uppercase tracking-wide">
+                                    {someSelected
+                                        ? `History — ${previewLabel}`
+                                        : 'History'}
+                                </span>
+                                {rowTotalCount > 0 && (
+                                    <span className="text-xs opacity-50">{rowTotalCount} record{rowTotalCount !== 1 ? 's' : ''}</span>
+                                )}
+                            </div>
+
+                            <SearchBar
+                                value={searchTerms[histSearchKey] || ''}
+                                onChange={(val) => {
+                                    setSearchTerms(prev => ({ ...prev, [histSearchKey]: val }));
+                                    setCurrentPages(prev => ({ ...prev, [histPageKey]: 1 }));
+                                }}
+                                placeholder="Search history records..."
+                            />
+
+                            {!someSelected ? (
+                                <div className="flex flex-col items-center justify-center py-16 opacity-40">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                                    </svg>
+                                    <p className="text-sm">Select one or more items on the left to view their history</p>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="overflow-x-auto">
+                                        <table className="table table-sm table-zebra [&_th]:border-y [&_th]:border-base-content/20 [&_td]:border-y [&_td]:border-base-content/20">
+                                            <thead>
+                                                <tr>
+                                                    <th>User</th>
+                                                    <th>Date</th>
+                                                    <th>Time</th>
+                                                    <th>Item Code</th>
+                                                    <th>Material Description</th>
+                                                    <th>Action</th>
+                                                    <th className="text-center">Old Qty</th>
+                                                    <th className="text-center">New Qty</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {pagedRows.length > 0 ? pagedRows.map((row, idx) => {
+                                                    const actionInfo = ACTION_LABELS[row.action] || { label: row.action, badge: 'badge-ghost' };
+                                                    return (
+                                                        <tr key={idx}>
+                                                            <td className="text-xs font-medium">{row.user}</td>
+                                                            <td className="whitespace-nowrap text-xs">{row.snapshotDate}</td>
+                                                            <td className="whitespace-nowrap text-xs opacity-70">{row.snapshotTime}</td>
+                                                            <td className="font-semibold text-xs">{row.itemCode}</td>
+                                                            <td className="text-xs">{row.materialDescription}</td>
+                                                            <td>
+                                                                <span className={`badge badge-sm badge-outline ${actionInfo.badge}`}>
+                                                                    {actionInfo.label}
+                                                                </span>
+                                                            </td>
+                                                            <td className="text-center text-xs opacity-70">{row.oldQty}</td>
+                                                            <td className="text-center font-bold text-xs">{row.qty}</td>
+                                                        </tr>
+                                                    );
+                                                }) : (
+                                                    <tr>
+                                                        <td colSpan="8" className="text-center opacity-50 text-xs py-8">
+                                                            {searchTerms[histSearchKey]
+                                                                ? `No results for "${searchTerms[histSearchKey]}"`
+                                                                : filters.filterType !== 'all'
+                                                                ? 'No history for selected items in this period'
+                                                                : 'No history records for selected items'}
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    {rowTotalPages > 1 && (
+                                        <Pagination currentPage={rowCurrentPage} totalPages={rowTotalPages}
+                                            onPageChange={(p) => handlePageChange(histPageKey, p)} />
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </CardWrap>
+            );
+        }
+
         // ===== CONSIGNED ISSUANCE =====
         if (activeMainTab === "consigned" && currentSubTab === "issuance") {
             const tableKey = 'consigned_issuance';
@@ -755,7 +1265,7 @@ export default function Export({ tableData }) {
             const filteredData = getFilteredData(consignedIssuanceData, tableKey);
             const searchedData = applySearch(sortByMrsNoDesc(filteredData), searchTerms[tableKey]);
             const { data, totalPages, currentPage, totalItems } = getPaginatedData(searchedData, tableKey);
-            const hasActiveFilter = filters.filterType !== 'all' || !!searchTerms[tableKey];
+            const hasActiveFilter = filters.filterType !== 'all' || !!searchTerms[tableKey] || !!filters.selectedDay;
             return (
                 <CardWrap>
                     <CardHeader title={title} totalItems={totalItems} originalCount={consignedIssuanceData.length}
@@ -777,7 +1287,7 @@ export default function Export({ tableData }) {
                                     <th>Order Date</th><th>Employee No</th><th>Factory</th><th>Station</th>
                                     <th>MRS No</th><th>Issued By</th><th>Item Code</th><th>Material Description</th>
                                     <th>Supplier</th><th>Expiration</th><th>Bin Location</th><th>UOM</th>
-<th>Qty per Box</th><th>Quantity</th><th>Request Qty</th><th>Issued Qty</th><th>Remarks</th><th>SOH</th><th>Delivered At</th>
+                                    <th>Qty per Box</th><th>Quantity</th><th>Request Qty</th><th>Issued Qty</th><th>Remarks</th><th>SOH</th><th>Delivered At</th>
                                 </tr>
                             </thead>
                             <tbody>

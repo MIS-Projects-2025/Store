@@ -946,9 +946,9 @@ class ConsignedController extends Controller
                         'type' => 'main',
                         'action' => $history->action,
                         'user_name' => $history->user_name,
-                        'changes' => $history->changes,
-                        'old_values' => $history->old_values,
-                        'new_values' => $history->new_values,
+                        'changes' => $this->formatHistoryDates($history->changes),
+                        'old_values' => $this->formatHistoryDates($history->old_values),
+                        'new_values' => $this->formatHistoryDates($history->new_values),
                         'created_at' => $history->created_at->format('Y-m-d H:i:s'),
                     ];
                 });
@@ -989,9 +989,9 @@ class ConsignedController extends Controller
                         'item_code' => $history->item_code,
                         'mat_description' => $history->mat_description,
                         'user_name' => $history->user_name,
-                        'changes' => $history->changes,
-                        'old_values' => $history->old_values,
-                        'new_values' => $history->new_values,
+                        'changes' => $this->formatHistoryDates($history->changes),
+                        'old_values' => $this->formatHistoryDates($history->old_values),
+                        'new_values' => $this->formatHistoryDates($history->new_values),
                         'created_at' => $history->created_at->format('Y-m-d H:i:s'),
                     ];
                 });
@@ -1253,6 +1253,42 @@ class ConsignedController extends Controller
         return null;
     }
 
+    private function formatHistoryDates($data)
+    {
+        if (!$data) return $data;
+
+        if (is_string($data)) {
+            $data = json_decode($data, true);
+        }
+
+        if (!is_array($data)) return $data;
+
+        $dateKeys = ['expiration', 'created_at', 'updated_at'];
+
+        foreach ($data as $key => &$value) {
+            if (is_array($value) && isset($value['old'])) {
+                foreach (['old', 'new'] as $side) {
+                    if (
+                        isset($value[$side]) &&
+                        is_string($value[$side]) &&
+                        in_array($key, $dateKeys)
+                    ) {
+                        try {
+                            $value[$side] = Carbon::parse($value[$side])->format('Y-m-d');
+                        } catch (\Exception $e) {}
+                    }
+                }
+            }
+
+            if (is_string($value) && in_array($key, $dateKeys)) {
+                try {
+                    $value = Carbon::parse($value)->format('Y-m-d');
+                } catch (\Exception $e) {}
+            }
+        }
+
+        return $data;
+    }
     /**
      * Get all details for a consigned item (including all expiration dates)
      */

@@ -2,7 +2,7 @@ import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout";
 import { Head } from "@inertiajs/react";
 import { useState } from "react";
 
-export default function Dashboard({ lowConsumables = [], lowSupplies = [] }) {
+export default function Dashboard({ lowConsumables = [], lowSupplies = [], lowConsigned = [] }) {
     const [activeTab, setActiveTab] = useState("tab1");
 
     const cards = [
@@ -28,7 +28,7 @@ export default function Dashboard({ lowConsumables = [], lowSupplies = [] }) {
         },
         {
             title: "CONSIGNED",
-            count: 0,
+            count: lowConsigned.length,
             color: "info",
             icon: (
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -81,6 +81,12 @@ export default function Dashboard({ lowConsumables = [], lowSupplies = [] }) {
                                     onClick={() => setActiveTab("tab2")}
                                 >
                                     Supplies ({lowSupplies.length})
+                                </a>
+                                <a 
+                                    className={`tab ${activeTab === "tab3" ? "tab-active" : ""}`}
+                                    onClick={() => setActiveTab("tab3")}
+                                >
+                                    Consigned ({lowConsigned.length})
                                 </a>
                             </div>
 
@@ -171,6 +177,48 @@ export default function Dashboard({ lowConsumables = [], lowSupplies = [] }) {
                                         </table>
                                     </div>
                                 )}
+                                {activeTab === "tab3" && (
+    <div className="overflow-x-auto">
+        <table className="table table-zebra">
+            <thead>
+                <tr>
+                    <th>Item Code</th>
+                    <th>Material Description</th>
+                    <th>Quantity</th>
+                    <th>Minimum</th>
+                    <th>UOM</th>
+                </tr>
+            </thead>
+            <tbody>
+                {lowConsigned.length > 0 ? (
+                    lowConsigned.map((item) => (
+                        <tr key={item.id}>
+                            <td>{item.itemcode}</td>
+                            <td>{item.mat_description}</td>
+                            <td>
+                                <span className={`${
+                                    item.qty <= item.minimum / 2
+                                        ? 'text-red-600 font-bold'
+                                        : 'text-yellow-600 font-semibold'
+                                }`}>
+                                    {parseFloat(item.qty).toFixed(2)}
+                                </span>
+                            </td>
+                            <td>{parseFloat(item.minimum).toFixed(2)}</td>
+                            <td>{item.uom}</td>
+                        </tr>
+                    ))
+                ) : (
+                    <tr>
+                        <td colSpan="5" className="text-center text-gray-500">
+                            No low stock items found
+                        </td>
+                    </tr>
+                )}
+            </tbody>
+        </table>
+    </div>
+)}
                             </div>
                         </div>
                     </div>

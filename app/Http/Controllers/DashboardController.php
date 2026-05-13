@@ -6,6 +6,8 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use App\Models\ConsumableDetail;
 use App\Models\SupplyDetail;
+use App\Models\ConsignedDetail;
+
 
 class DashboardController extends Controller
 {
@@ -63,9 +65,33 @@ class DashboardController extends Controller
                 ];
             });
 
-        return Inertia::render('Dashboard', [
-            'lowConsumables' => $lowConsumables,
-            'lowSupplies' => $lowSupplies,
-        ]);
+        $lowConsigned = ConsignedDetail::whereColumn('qty', '<', 'minimum')
+    ->select(
+        'id',
+        'item_code',
+        'mat_description',
+        'qty',
+        'minimum',
+        'uom'
+    )
+    ->orderBy('qty', 'asc')
+    ->get()
+    ->map(function ($item) {
+        return [
+            'id'           => $item->id,
+            'itemcode'     => $item->item_code,
+            'mat_description' => $item->mat_description,
+            'qty'          => $item->qty,
+            'minimum'      => $item->minimum,
+            'uom'          => $item->uom,
+        ];
+    });
+
+// Update the Inertia render to include it
+return Inertia::render('Dashboard', [
+    'lowConsumables' => $lowConsumables,
+    'lowSupplies'    => $lowSupplies,
+    'lowConsigned'   => $lowConsigned,
+]);
     }
 }

@@ -20,7 +20,9 @@ use App\Models\ConsignedDetailHistory;
 class ExportController extends Controller
 {
     public function index(Request $request)
-    {
+        {
+            ini_set('memory_limit', '512M');
+            try {
         // Get Consumable Inventory data
         $consumableInventory = Consumable::with('details')
             ->get()
@@ -49,8 +51,9 @@ class ExportController extends Controller
 
         // Pre-load consumable history keyed by item_code + mrs_no for SOH lookup
         $consumableHistoryMap = ConsumableDetailHistory::where('action', 'updated')
+            ->select(['item_code', 'old_values', 'new_values'])
+            ->whereRaw("JSON_UNQUOTE(JSON_EXTRACT(old_values, '$.action_type')) = 'issued'")
             ->get()
-            ->filter(fn($h) => ($h->old_values['action_type'] ?? '') === 'issued')
             ->keyBy(fn($h) => $h->item_code . '|' . ($h->old_values['mrs_no'] ?? ''));
 
         $consumableIssuance = $consumableIssuanceItems->map(function ($item) use ($consumableHistoryMap) {
@@ -85,7 +88,7 @@ class ExportController extends Controller
             ->get()
             ->map(function ($item) {
                 return [
-                    'orderDate' => $item->order_date->format('Y-m-d') . ' ' . $item->created_at->format('H:i:s'),
+                    'orderDate' => optional($item->order_date)->format('Y-m-d') . ' ' . optional($item->created_at)->format('H:i:s'),
                     'employeeId' => $item->emp_id,
                     'employeeName' => $item->emp_name,
                     'department' => $item->department,
@@ -130,8 +133,9 @@ class ExportController extends Controller
 
         // Pre-load supplies history keyed by item_code + mrs_no for SOH lookup
         $suppliesHistoryMap = SupplyDetailHistory::where('action', 'updated')
+            ->select(['item_code', 'old_values', 'new_values'])
+            ->whereRaw("JSON_UNQUOTE(JSON_EXTRACT(old_values, '$.action_type')) = 'issued'")
             ->get()
-            ->filter(fn($h) => ($h->old_values['action_type'] ?? '') === 'issued')
             ->keyBy(fn($h) => $h->item_code . '|' . ($h->old_values['mrs_no'] ?? ''));
 
         $suppliesIssuance = $suppliesIssuanceItems->map(function ($item) use ($suppliesHistoryMap) {
@@ -139,7 +143,7 @@ class ExportController extends Controller
             $history    = $suppliesHistoryMap->get($historyKey);
             $soh        = $history ? ($history->new_values['qty'] ?? null) : null;
             return [
-                'orderDate'           => $item->order_date->format('Y-m-d') . ' ' . $item->created_at->format('H:i:s'),
+                'orderDate'           => optional($item->order_date)->format('Y-m-d') . ' ' . optional($item->created_at)->format('H:i:s'),
                 'employeeId'          => $item->emp_id,
                 'employeeName'        => $item->emp_name,
                 'department'          => $item->department,
@@ -165,7 +169,7 @@ class ExportController extends Controller
             ->get()
             ->map(function ($item) {
                 return [
-                    'orderDate' => $item->order_date->format('Y-m-d') . ' ' . $item->created_at->format('H:i:s'),
+                    'orderDate' => optional($item->order_date)->format('Y-m-d') . ' ' . optional($item->created_at)->format('H:i:s'),
                     'employeeId' => $item->emp_id,
                     'employeeName' => $item->emp_name,
                     'department' => $item->department,
@@ -205,6 +209,54 @@ class ExportController extends Controller
                 });
             });
 
+// Get Consigned Inventory History data
+// Step 1: Get all current inventory items as the base
+$allConsignedItems = Consigned::with('details')
+    ->get()
+    ->flatMap(function ($consigned) {
+        return $consigned->details->map(function ($detail) {
+            return [
+                'itemCode'            => $detail->item_code,
+                'materialDescription' => $detail->mat_description,
+                'currentQty'          => $detail->qty,
+            ];
+        });
+    });
+
+// Step 2: Build a map of ALL history snapshots per item_code (all dates, not just latest)
+$historyByItem = ConsignedDetailHistory::whereIn('action', ['issued', 'returned', 'quantity_added', 'updated'])
+    ->whereNotNull('new_values')
+    ->get()
+    ->groupBy('item_code')
+    ->map(function ($group) {
+        return $group->map(function ($history) {
+            $newValues = is_array($history->new_values)
+                ? $history->new_values
+                : json_decode($history->new_values, true);
+            $oldValues = is_array($history->old_values)
+                ? $history->old_values
+                : json_decode($history->old_values, true);
+            return [
+                'qty'          => $newValues['qty'] ?? null,
+                'oldQty'       => $oldValues['qty'] ?? null,
+                'snapshotDate' => \Carbon\Carbon::parse($history->created_at)->toDateString(),
+                'snapshotTime' => \Carbon\Carbon::parse($history->created_at)->format('H:i:s'),
+                'action'       => $history->action,
+                'user'         => $history->user_name ?? $history->username ?? null,
+            ];
+        })->filter(fn($h) => $h['qty'] !== null)->values();
+    });
+
+// Step 3: Build one row per inventory item, attaching all its history snapshots
+$consignedInventoryHistory = $allConsignedItems->map(function ($item) use ($historyByItem) {
+    $snapshots = $historyByItem->get($item['itemCode'], collect());
+    return [
+        'itemCode'            => $item['itemCode'],
+        'materialDescription' => $item['materialDescription'],
+        'currentQty'          => $item['currentQty'],
+        'snapshots'           => $snapshots->values()->toArray(),
+    ];
+})->values();
         // Get Consigned Issuance data (mrs_status = 'delivered')
         $consignedIssuanceItems = ConsignedCart::where('mrs_status', 'delivered')
             ->orderBy('order_date', 'desc')
@@ -212,6 +264,7 @@ class ExportController extends Controller
 
         // Pre-load consigned history keyed by item_code + mrs_no for SOH lookup
         $consignedHistoryMap = ConsignedDetailHistory::where('action', 'issued')
+            ->select(['item_code', 'old_values', 'new_values'])
             ->get()
             ->keyBy(fn($h) => $h->item_code . '|' . ($h->old_values['mrs_no'] ?? ''));
 
@@ -238,7 +291,7 @@ class ExportController extends Controller
                 'issuedQuantity'      => $item->issued_qty,
                 'soh'                 => $soh,
                 'remarks'             => $item->remarks,
-                'deliveredAt'         => $item->updated_at->format('Y-m-d H:i:s'),
+                'deliveredAt'         => optional($item->updated_at)->format('Y-m-d H:i:s'),
             ];
         });
 
@@ -282,10 +335,18 @@ class ExportController extends Controller
                 ],
                 'consigned' => [
                     'inventory' => $consignedInventory,
+                    'inventoryHistory' => $consignedInventoryHistory,
                     'issuance' => $consignedIssuance,
                     'return' => $consignedReturn,
                 ],
             ]
         ]);
+    } catch (\Throwable $e) {
+            return response()->json([
+                'error' => $e->getMessage(),
+                'file'  => $e->getFile(),
+                'line'  => $e->getLine(),
+            ], 500);
+        }
     }
 }

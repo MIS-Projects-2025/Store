@@ -136,6 +136,12 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
 
     const debouncedCommonality = useDebounce(step1Data.commonality, 500);
 
+const parseJsonField = (field) => {
+    if (!field) return null;
+    if (typeof field === "object") return field;
+    try { return JSON.parse(field); } catch { return null; }
+};
+
     useEffect(() => {
         if (debouncedCommonality && showStep1Modal) {
             fetchCategoryForCommonality(debouncedCommonality);
@@ -468,41 +474,236 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
         }
     };
 
-    const handleConsignedHistory = async (id) => {
-        setLoadingConsignedHistory(true);
-        setShowConsignedHistoryModal(true);
-        const item = consignedItems.find((i) => i.id === id);
-        setConsignedHistoryItemInfo(item);
-        try {
-            const response = await fetch(route("consigned.history.main", id));
-            const data = await response.json();
-            setConsignedHistoryData(data.history || []);
-        } catch {
-            setConsignedHistoryData([]);
-        } finally {
-            setLoadingConsignedHistory(false);
-        }
-    };
+const handleConsignedHistory = async (id) => {
+    setLoadingConsignedHistory(true);
+    setShowConsignedHistoryModal(true);
+    const item = consignedItems.find((i) => i.id === id);
+    setConsignedHistoryItemInfo(item);
+    try {
+        const response = await fetch(route("consigned.history.main", id));
+        const data = await response.json();
+        console.log("consigned history response:", data); // debug
+        setConsignedHistoryData(data.history || []);
+    } catch (e) {
+        console.error("consigned history fetch error:", e); // debug
+        setConsignedHistoryData([]);
+    } finally {
+        setLoadingConsignedHistory(false);
+    }
+};
 
-    const handleDetailHistory = async (detailId, combo) => {
-        setLoadingDetailHistory(true);
-        setShowDetailHistoryModal(true);
-        setDetailHistoryItemInfo({
-            item_code: combo.item_code,
-            mat_description: combo.mat_description,
-            supplier: combo.supplier,
-            commonality: selectedItem?.commonality || "N/A",
-        });
-        try {
-            const response = await fetch(route("consigned.history.detail", detailId));
-            const data = await response.json();
-            setDetailHistoryData(data.history || []);
-        } catch {
-            setDetailHistoryData([]);
-        } finally {
-            setLoadingDetailHistory(false);
+const handleExportConsignedHistory = () => {
+    if (!consignedHistoryData.length) return;
+
+    const info = consignedHistoryItemInfo;
+    const rows = [];
+
+    rows.push(["Consigned Detailed History"]);
+    rows.push([]);
+    rows.push(["Commonality", info?.commonality || "N/A"]);
+    rows.push(["Category",    info?.category    || "N/A"]);
+    rows.push([]);
+    rows.push(["Action", "Record Type", "User", "Date/Time", "Field", "Old Value", "New Value"]);
+
+    consignedHistoryData.forEach((history) => {
+        const action     = formatAction(history.action);
+        const recordType = history.type === "main" ? "Main Record" : "Detail Record";
+        const user       = history.user_name  || "N/A";
+        const date       = history.created_at || "N/A";
+
+        const changes   = parseJsonField(history.changes);
+        const oldValues = parseJsonField(history.old_values);
+        const newValues = parseJsonField(history.new_values);
+
+        if (changes && Object.keys(changes).length > 0) {
+            Object.entries(changes).forEach(([field, change], idx) => {
+                rows.push([
+                    idx === 0 ? action     : "",
+                    idx === 0 ? recordType : "",
+                    idx === 0 ? user       : "",
+                    idx === 0 ? date       : "",
+                    field.replace(/_/g, " "),
+                    change?.old !== undefined ? String(change.old ?? "N/A") : "",
+                    change?.new !== undefined ? String(change.new ?? "N/A") : "",
+                ]);
+            });
+
+        } else if (
+            (history.action === "deleted" || history.action === "deleted_with_main") &&
+            oldValues
+        ) {
+            Object.entries(oldValues).forEach(([key, value], idx) => {
+                if (value === null || value === undefined) return;
+                rows.push([
+                    idx === 0 ? action     : "",
+                    idx === 0 ? recordType : "",
+                    idx === 0 ? user       : "",
+                    idx === 0 ? date       : "",
+                    key.replace(/_/g, " "),
+                    String(value),
+                    "",
+                ]);
+            });
+
+        } else if (history.action === "created" && newValues) {
+            Object.entries(newValues).forEach(([key, value], idx) => {
+                if (value === null || value === undefined) return;
+                rows.push([
+                    idx === 0 ? action     : "",
+                    idx === 0 ? recordType : "",
+                    idx === 0 ? user       : "",
+                    idx === 0 ? date       : "",
+                    key.replace(/_/g, " "),
+                    "",
+                    String(value),
+                ]);
+            });
+
+        } else {
+            rows.push([action, recordType, user, date, "", "", ""]);
         }
-    };
+    });
+
+    const csvContent = rows
+        .map((row) =>
+            row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")
+        )
+        .join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url  = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const filename = `consigned_history_${info?.commonality || "export"}_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.setAttribute("href", url);
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+};
+
+const handleDetailHistory = async (detailId, combo) => {
+    setLoadingDetailHistory(true);
+    setShowDetailHistoryModal(true);
+    setDetailHistoryItemInfo({
+        item_code: combo.item_code,
+        mat_description: combo.mat_description,
+        supplier: combo.supplier,
+        commonality: selectedItem?.commonality || "N/A",
+    });
+    try {
+        const response = await fetch(route("consigned.history.detail", detailId));
+        const data = await response.json();
+        setDetailHistoryData(data.history || []);
+    } catch {
+        setDetailHistoryData([]);
+    } finally {
+        setLoadingDetailHistory(false);
+    }
+};
+
+const handleExportDetailHistory = () => {
+    if (!detailHistoryData.length) return;
+
+    const info = detailHistoryItemInfo;
+    const rows = [];
+
+    rows.push(["Consigned Detailed History"]);
+    rows.push([]);
+    rows.push(["Commonality", info?.commonality    || "N/A"]);
+    rows.push(["Item Code",   info?.item_code      || "N/A"]);
+    rows.push(["Supplier",    info?.supplier       || "N/A"]);
+    rows.push(["Description", info?.mat_description || "N/A"]);
+    rows.push([]);
+    rows.push(["Action", "User", "Date/Time", "Field", "Old Value", "New Value"]);
+
+    detailHistoryData.forEach((history) => {
+        const action = formatAction(history.action);
+        const user   = history.user_name  || "N/A";
+        const date   = history.created_at || "N/A";
+
+        const changes   = parseJsonField(history.changes);
+        const oldValues = parseJsonField(history.old_values);
+        const newValues = parseJsonField(history.new_values);
+
+        const isTransactionAction = ["issued", "returned", "replacement_return", "replacement_issue"].includes(history.action);
+
+        if (isTransactionAction && oldValues) {
+            const details = [
+                oldValues.mrs_no                       ? `MRS No: ${oldValues.mrs_no}`               : null,
+                oldValues.issued_qty   !== undefined   ? `Issued Qty: ${oldValues.issued_qty}`       : null,
+                oldValues.returned_qty !== undefined   ? `Returned Qty: ${oldValues.returned_qty}`   : null,
+                oldValues.supplier                     ? `Supplier: ${oldValues.supplier}`           : null,
+                oldValues.reason                       ? `Reason: ${oldValues.reason}`               : null,
+            ].filter(Boolean).join("; ");
+            rows.push([action, user, date, "Transaction Details", details, ""]);
+
+        } else if (changes && Object.keys(changes).length > 0) {
+            Object.entries(changes).forEach(([field, change], idx) => {
+                rows.push([
+                    idx === 0 ? action : "",
+                    idx === 0 ? user   : "",
+                    idx === 0 ? date   : "",
+                    field.replace(/_/g, " "),
+                    change?.old !== undefined ? String(change.old ?? "N/A") : "",
+                    change?.new !== undefined ? String(change.new ?? "N/A") : "",
+                ]);
+            });
+
+        } else if (
+            (history.action === "deleted" || history.action === "deleted_with_main") &&
+            oldValues
+        ) {
+            const relevant = Object.entries(oldValues).filter(
+                ([key]) => !["mrs_no", "issued_qty", "returned_qty", "supplier", "reason"].includes(key)
+            );
+            relevant.forEach(([key, value], idx) => {
+                if (value === null || value === undefined) return;
+                rows.push([
+                    idx === 0 ? action : "",
+                    idx === 0 ? user   : "",
+                    idx === 0 ? date   : "",
+                    key.replace(/_/g, " "),
+                    String(value),
+                    "",
+                ]);
+            });
+
+        } else if (history.action === "created" && newValues) {
+            Object.entries(newValues).forEach(([key, value], idx) => {
+                if (value === null || value === undefined) return;
+                rows.push([
+                    idx === 0 ? action : "",
+                    idx === 0 ? user   : "",
+                    idx === 0 ? date   : "",
+                    key.replace(/_/g, " "),
+                    "",
+                    String(value),
+                ]);
+            });
+
+        } else {
+            rows.push([action, user, date, "", "", ""]);
+        }
+    });
+
+    const csvContent = rows
+        .map((row) =>
+            row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")
+        )
+        .join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url  = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const filename = `detail_history_${info?.item_code || "export"}_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.setAttribute("href", url);
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+};
 
     const formatAction = (action) => {
         const actionMap = {
@@ -621,6 +822,26 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
     const handlePageChange = (newPage) => { if (newPage >= 1 && newPage <= totalPages) setCurrentPage(newPage); };
     const handleItemsPerPageChange = (e) => { setItemsPerPage(parseInt(e.target.value)); setCurrentPage(1); };
 
+    const isSelectedItemLowStock = (item) => {
+        const currentSelection = rowSelections[item.id] || {
+            itemCode: item.selected_itemcode,
+            supplier: item.selected_supplier,
+        };
+
+        if (!item.combinations) return null;
+
+        const selectedCombo = item.combinations.find(
+            (c) =>
+                c.item_code === currentSelection.itemCode &&
+                c.supplier === currentSelection.supplier
+        );
+
+        if (!selectedCombo || selectedCombo.minimum == null || selectedCombo.qty == null) return null;
+        if (selectedCombo.qty <= selectedCombo.minimum) return "critical";
+        if (selectedCombo.qty >= selectedCombo.minimum + 5) return "low";
+        return null;
+    };
+
     const getPageNumbers = () => {
         const pages = [];
         const maxPagesToShow = 5;
@@ -723,8 +944,18 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
                                                     description: "N/A",
                                                 };
                                                 const isEditingMain = editingMainRowId === item.id;
+                                                const stockStatus = isSelectedItemLowStock(item);
                                                 return (
-                                                    <tr key={item.id} className="hover:bg-base-content/5 transition-colors">
+                                                    <tr
+                                                        key={item.id}
+                                                        className={`hover:bg-base-content/5 transition-colors ${
+                                                            stockStatus === "critical"
+                                                                ? "border-l-4 border-l-red-500"
+                                                                : stockStatus === "low"
+                                                                ? "border-l-4 border-l-yellow-500"
+                                                                : ""
+                                                        }`}
+                                                    >
                                                         <td className={td}>
                                                             {isEditingMain ? (
                                                                 <input
@@ -734,7 +965,9 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
                                                                     onChange={(e) => setEditMainFormData({ ...editMainFormData, commonality: e.target.value })}
                                                                 />
                                                             ) : (
-                                                                <div className="truncate px-1" title={item.commonality || "N/A"}>{item.commonality || "N/A"}</div>
+                                                                <div className="truncate px-1" title={item.commonality || "N/A"}>
+                                                                    {item.commonality || "N/A"}
+                                                                </div>
                                                             )}
                                                         </td>
                                                         <td className={td}>
@@ -759,7 +992,21 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
                                                             <div className="truncate px-1" title={currentSelection.supplier || "N/A"}>{currentSelection.supplier || "N/A"}</div>
                                                         </td>
                                                         <td className={td}>
-                                                            <div className="truncate px-1" title={currentSelection.description || "N/A"}>{currentSelection.description || "N/A"}</div>
+                                                            <div className="flex items-center gap-2 justify-center">
+                                                                <div className="truncate px-1" title={currentSelection.description || "N/A"}>
+                                                                    {currentSelection.description || "N/A"}
+                                                                </div>
+                                                                {stockStatus === "critical" && (
+                                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">
+                                                                        Critical
+                                                                    </span>
+                                                                )}
+                                                                {stockStatus === "low" && (
+                                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-yellow-100 text-yellow-700 border border-yellow-300 whitespace-nowrap">
+                                                                        Low Stock
+                                                                    </span>
+                                                                )}
+                                                            </div>
                                                         </td>
                                                         <td className={td}>
                                                             {isEditingMain ? (
@@ -1003,8 +1250,27 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
                                                                 <td className={td}>
                                                                     {isEditing && station === 1
                                                                         ? <input type="text" className={inputSmCls()} value={editFormData.mat_description} onChange={(e) => setEditFormData({ ...editFormData, mat_description: e.target.value })} />
-                                                                        : isEditing ? <span className="text-base-content/60">{combo.mat_description || "N/A"}</span>
-                                                                        : combo.mat_description || "N/A"}
+                                                                        : isEditing
+                                                                        ? <span className="text-base-content/60">{combo.mat_description || "N/A"}</span>
+                                                                        : (
+                                                                            <div className="flex items-center gap-1 justify-center">
+                                                                                <span>{combo.mat_description || "N/A"}</span>
+                                                                                {(() => {
+                                                                                    if (combo.minimum == null || combo.qty == null) return null;
+                                                                                    if (combo.qty <= combo.minimum) return (
+                                                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">
+                                                                                            Critical
+                                                                                        </span>
+                                                                                    );
+                                                                                    if (combo.qty >= combo.minimum + 5) return (
+                                                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-yellow-100 text-yellow-700 border border-yellow-300 whitespace-nowrap">
+                                                                                            Low Stock
+                                                                                        </span>
+                                                                                    );
+                                                                                    return null;
+                                                                                })()}
+                                                                            </div>
+                                                                        )}
                                                                 </td>
                                                                 <td className={td}>
                                                                     {isEditing && station === 1
@@ -1331,7 +1597,15 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
                                 </div>
                             )}
                         </div>
-                        <div className="flex justify-end pt-4 flex-shrink-0 border-t border-base-content/10 mt-4">
+                        <div className="flex justify-between pt-4 flex-shrink-0 border-t border-base-content/10 mt-4">
+                            <SecondaryBtn
+                                onClick={handleExportConsignedHistory}
+                                disabled={loadingConsignedHistory || consignedHistoryData.length === 0}
+                                title="Export Consigned History to CSV"
+                            >
+                                <FileExcelOutlined className="text-base" />
+                                Export CSV
+                            </SecondaryBtn>
                             <SecondaryBtn onClick={() => { setShowConsignedHistoryModal(false); setConsignedHistoryData([]); setConsignedHistoryItemInfo(null); }}>Close</SecondaryBtn>
                         </div>
                     </div>
@@ -1420,7 +1694,15 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
                                 </div>
                             )}
                         </div>
-                        <div className="flex justify-end pt-4 flex-shrink-0 border-t border-base-content/10 mt-4">
+<div className="flex justify-between pt-4 flex-shrink-0 border-t border-base-content/10 mt-4">
+                            <SecondaryBtn
+                                onClick={handleExportDetailHistory}
+                                disabled={loadingDetailHistory || detailHistoryData.length === 0}
+                                title="Export Consigned Detailed History to CSV"
+                            >
+                                <FileExcelOutlined className="text-base" />
+                                Export CSV
+                            </SecondaryBtn>
                             <SecondaryBtn onClick={() => { setShowDetailHistoryModal(false); setDetailHistoryData([]); setDetailHistoryItemInfo(null); }}>Close</SecondaryBtn>
                         </div>
                     </div>

@@ -484,31 +484,29 @@ export default function MaterialIssuance() {
         else if (activeMainTab === "supplies")  payload.new_detailed_description = replacementItem.detailed_description;
 
         setIsProcessing(true);
-        router.post(route(routeName), payload, {
-            preserveScroll: true,
-            preserveState:  true,
-            only: [activeMainTab === "consumable" ? "consumables" : activeMainTab === "supplies" ? "supplies" : "consigned"],
-            onSuccess: (page) => {
-                const updatedData =
-                    activeMainTab === "consumable" ? page.props.consumables
-                    : activeMainTab === "supplies"  ? page.props.supplies
-                    :                                 page.props.consigned;
-                const updatedMRS = updatedData.find((mrs) => mrs.mrs_no === selectedMRS.mrs_no);
-                if (updatedMRS) {
-                    setSelectedMRS(updatedMRS);
-                    const newQuantities = {};
-                    const newRemarks = {};
-                    updatedMRS.items.forEach((item) => {
-                        newQuantities[item.id] = item.issued_quantity ?? item.issued_qty ?? 1;
-                        newRemarks[item.id] = item.remarks ?? "";
-                    });
-                    setIssuedQuantities(newQuantities);
-                    setItemRemarks(newRemarks);
-                }
-                closeReplaceModal();
-            },
-            onFinish: () => setIsProcessing(false),
-        });
+            router.post(route(routeName), payload, {
+                preserveScroll: true,
+                onSuccess: (page) => {
+                    const updatedData =
+                        activeMainTab === "consumable" ? page.props.consumables
+                        : activeMainTab === "supplies"  ? page.props.supplies
+                        :                                 page.props.consigned;
+                    const updatedMRS = updatedData?.find((mrs) => mrs.mrs_no === selectedMRS.mrs_no);
+                    if (updatedMRS) {
+                        setSelectedMRS(updatedMRS);
+                        const newQuantities = {};
+                        const newRemarks = {};
+                        updatedMRS.items.forEach((item) => {
+                            newQuantities[item.id] = item.issued_quantity ?? item.issued_qty ?? 1;
+                            newRemarks[item.id] = item.remarks ?? "";
+                        });
+                        setIssuedQuantities(newQuantities);
+                        setItemRemarks(newRemarks);
+                    }
+                    closeReplaceModal();
+                },
+                onFinish: () => setIsProcessing(false),
+            });
     };
 
     const isConsigned  = activeMainTab === "consigned";

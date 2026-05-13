@@ -64,7 +64,7 @@ class AuthMiddleware
             return $this->redirectToLogin($request)->withCookie($expiredCookie);
         }
 
-        $canAccess = $currentUser->emp_position >= 2
+        $canAccess = $currentUser->emp_position >= 0
             || stripos($currentUser->emp_dept, 'Facilities') === true
             || $currentUser->emp_jobtitle === 'Store User'       // ✅
             || $currentUser->emp_jobtitle === 'Consigned User';  // ✅

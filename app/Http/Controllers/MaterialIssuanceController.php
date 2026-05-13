@@ -53,6 +53,7 @@ public function index(Request $request)
     private function getConsumablesData($currentUser, $isAdmin)
     {
         $raw = ConsumableCart::where('approver_status', 'approved')
+            ->where('updated_at', '>=', now()->subDays(30))
             ->where(function ($query) use ($currentUser, $isAdmin) {
                 $query->where('mrs_status', 'Pending')
                     ->orWhere(function ($q) use ($currentUser, $isAdmin) {
@@ -107,6 +108,7 @@ public function index(Request $request)
     private function getSuppliesData($currentUser, $isAdmin)
     {
         $raw = SuppliesCart::where('approver_status', 'approved')
+            ->where('updated_at', '>=', now()->subDays(30))
             ->where(function ($query) use ($currentUser, $isAdmin) {
                 $query->where('mrs_status', 'Pending')
                     ->orWhere(function ($q) use ($currentUser, $isAdmin) {
@@ -160,6 +162,7 @@ public function index(Request $request)
     private function getConsignedData($currentUser, $isAdmin)
     {
         $raw = ConsignedCart::whereNotNull('mrs_status')
+            ->where('updated_at', '>=', now()->subDays(30))
             ->where(function ($query) use ($currentUser, $isAdmin) {
                 $query->where('mrs_status', 'Pending')
                     ->orWhere(function ($q) use ($currentUser, $isAdmin) {
@@ -699,7 +702,7 @@ public function cancelItemSuppliesForPickUp(Request $request)
         });
 
         broadcast(new MaterialIssuanceUpdated('consumable', 'item_replaced', $request->mrs_no));
-        return $this->getUpdatedData('consumable');
+            return back()->with('success', 'Item replaced successfully');
     }
 
     // ==================== SUPPLIES METHODS ====================
@@ -956,7 +959,7 @@ public function returnSuppliesItem(Request $request)
         });
 
         broadcast(new MaterialIssuanceUpdated('supplies', 'item_replaced', $request->mrs_no));
-        return $this->getUpdatedData('supplies');
+            return back()->with('success', 'Item replaced successfully');
     }
 
     // ==================== CONSIGNED METHODS ====================
@@ -1254,8 +1257,8 @@ public function updateIssuedQtyConsigned(Request $request)
             }
 
             DB::commit();
-            broadcast(new MaterialIssuanceUpdated('consigned', 'item_replaced', $request->mrs_no));
-            return $this->getUpdatedData('consigned');
+                broadcast(new MaterialIssuanceUpdated('consigned', 'item_replaced', $request->mrs_no));
+                return back()->with('success', 'Item replaced successfully');
         } catch (\Exception $e) {
             DB::rollBack();
             throw $e;
@@ -1303,9 +1306,15 @@ private function getUpdatedData($type)
         ->where('mrs_status', 'Pending')->distinct('mrs_no')->count('mrs_no');
 
     return Inertia::render('MaterialIssuance', [
-        'consumables'        => $this->getConsumablesData($currentUser, $isAdmin),
-        'supplies'           => $this->getSuppliesData($currentUser, $isAdmin),
-        'consigned'          => $this->getConsignedData($currentUser, $isAdmin),
+        'consumables' => $type === 'consumable'
+            ? $this->getConsumablesData($currentUser, $isAdmin)
+            : Inertia::lazy(fn() => $this->getConsumablesData($currentUser, $isAdmin)),
+        'supplies' => $type === 'supplies'
+            ? $this->getSuppliesData($currentUser, $isAdmin)
+            : Inertia::lazy(fn() => $this->getSuppliesData($currentUser, $isAdmin)),
+        'consigned' => $type === 'consigned'
+            ? $this->getConsignedData($currentUser, $isAdmin)
+            : Inertia::lazy(fn() => $this->getConsignedData($currentUser, $isAdmin)),
         'pendingCount'       => $pendingConsumables + $pendingSupplies + $pendingConsigned,
         'pendingConsumables' => $pendingConsumables,
         'pendingSupplies'    => $pendingSupplies,
