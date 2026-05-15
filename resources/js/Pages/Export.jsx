@@ -410,6 +410,51 @@ export default function Export({ tableData }) {
     const consignedReturnData     = tableData?.consigned?.return     || [];
     const consignedInventoryHistoryData = tableData?.consigned?.inventoryHistory || [];
 
+    const { consignedIssuedWeeklyMap, weekLabels } = useMemo(() => {
+    const getRange = (daysAgoStart, daysAgoEnd) => {
+        const start = new Date();
+        start.setDate(start.getDate() - daysAgoStart);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date();
+        end.setDate(end.getDate() - daysAgoEnd);
+        end.setHours(23, 59, 59, 999);
+        return { start, end };
+    };
+
+    const weekRanges = [
+        { key: 'w1', ...getRange(29, 22) },
+        { key: 'w2', ...getRange(21, 15) },
+        { key: 'w3', ...getRange(14, 8)  },
+        { key: 'w4', ...getRange(7, 0)   },
+    ];
+
+    const fmt = (d) => {
+        const mo = (d.getMonth() + 1).toString().padStart(2, '0');
+        const dy = d.getDate().toString().padStart(2, '0');
+        return `${mo}/${dy}`;
+    };
+
+    const labels = weekRanges.map((w, i) =>
+        `W${i + 1} (${fmt(w.start)}–${fmt(w.end)})`
+    );
+
+    const map = {};
+    consignedIssuanceData.forEach(item => {
+        if (!item.orderDate || !item.itemCode) return;
+        const date = new Date(item.orderDate);
+        const qty  = Number(item.issuedQuantity) || 0;
+        if (!map[item.itemCode]) map[item.itemCode] = { w1: 0, w2: 0, w3: 0, w4: 0 };
+        for (const { key, start, end } of weekRanges) {
+            if (date >= start && date <= end) {
+                map[item.itemCode][key] += qty;
+                break;
+            }
+        }
+    });
+
+    return { consignedIssuedWeeklyMap: map, weekLabels: labels };
+}, [consignedIssuanceData]);
+
     const renderContent = () => {
 
         // ===== CONSUMABLE INVENTORY =====
@@ -750,14 +795,56 @@ export default function Export({ tableData }) {
                 <CardWrap>
                     <CardHeader title={title} totalItems={totalItems} originalCount={consignedInventoryData.length}
                         searchKey={tableKey} searchTerms={searchTerms}
-                        onExport={() => exportToCSV(searchTerms[tableKey] ? searchedData : consignedInventoryData, 'consigned_inventory')}
+                        onExport={() => {
+    const today = new Date();
+    const source = searchTerms[tableKey] ? searchedData : consignedInventoryData;
+    const enriched = source.map(item => {
+        const w = consignedIssuedWeeklyMap[item.itemCode];
+        const w1 = w?.w1 || 0;
+        const w2 = w?.w2 || 0;
+        const w3 = w?.w3 || 0;
+        const w4 = w?.w4 || 0;
+        const total30d = w1 + w2 + w3 + w4;
+        const expirationDate   = item.expiration ? new Date(item.expiration) : null;
+        const isExpired        = expirationDate && expirationDate < today;
+        const isNearExpiration = expirationDate && expirationDate >= today
+            && expirationDate <= new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+        const healthStatus =
+            item.minimum == null || item.quantity == null ? '—'
+            : item.quantity <= item.minimum        ? 'Critical'
+            : item.quantity <= item.minimum + 5    ? 'Low Stock'
+            : 'Normal';
+        return {
+            itemCode:            item.itemCode,
+            materialDescription: item.materialDescription,
+            category:            item.category,
+            supplier:            item.supplier,
+            [weekLabels[0]]:     w1,
+            [weekLabels[1]]:     w2,
+            [weekLabels[2]]:     w3,
+            [weekLabels[3]]:     w4,
+            'Total (30d)':       total30d,
+            quantity:            item.quantity,
+            qtyPerBox:           item.qtyPerBox,
+            uom:                 item.uom,
+            binLocation:         item.binLocation,
+            minimum:             item.minimum,
+            maximum:             item.maximum,
+            price:               item.price,
+            expiration:          item.expiration || 'No expiry',
+            expirationStatus:    isExpired ? 'Expired' : isNearExpiration ? 'Near Expiry' : 'OK',
+            healthStatus:        healthStatus,
+        };
+    });
+    exportToCSV(enriched, 'consigned_inventory');
+}}
                         exportDisabled={consignedInventoryData.length === 0} />
                     <div className="mb-4">
                         <SearchBar value={searchTerms[tableKey]} onChange={(val) => updateSearchTerm(tableKey, val)} placeholder="Search by item code, supplier, category..." />
                     </div>
                     <div className="overflow-x-auto">
                         <table className="table table-zebra [&_th]:border-y [&_th]:border-base-content/20 [&_td]:border-y [&_td]:border-base-content/20">
-                            <thead><tr><th>Item Code</th><th>Material Description</th><th>Category</th><th>Supplier</th><th>Quantity</th><th>Qty per Box</th><th>UOM</th><th>Bin Location</th><th>Minimum</th><th>Maximum</th><th>Price</th><th>Expiration</th></tr></thead>
+<thead><tr><th>Item Code</th><th>Material Description</th><th>Category</th><th>Supplier</th><th className="text-center">{weekLabels[0]}</th><th className="text-center">{weekLabels[1]}</th><th className="text-center">{weekLabels[2]}</th><th className="text-center">{weekLabels[3]}</th><th className="text-center">Total (30d)</th><th>Quantity</th><th>Qty per Box</th><th>UOM</th><th>Bin Location</th><th>Minimum</th><th>Maximum</th><th>Price</th><th>Expiration</th><th className="text-center">Health Status</th></tr></thead>
                             <tbody>
                                 {data.length > 0 ? data.map((item, index) => {
                                     const today = new Date();
@@ -770,6 +857,27 @@ export default function Export({ tableData }) {
                                             <td>{item.materialDescription}</td>
                                             <td><span className="badge badge-outline badge-sm">{item.category}</span></td>
                                             <td><span className="badge badge-outline badge-sm">{item.supplier}</span></td>
+                                            {(['w1','w2','w3','w4']).map(wk => {
+                                                const val = consignedIssuedWeeklyMap[item.itemCode]?.[wk] || 0;
+                                                return (
+                                                    <td key={wk} className="text-center">
+                                                        <span className={`font-bold ${val > 0 ? 'text-warning' : 'opacity-40'}`}>
+                                                            {val}
+                                                        </span>
+                                                    </td>
+                                                );
+                                            })}
+                                            <td className="text-center">
+                                                {(() => {
+                                                    const w = consignedIssuedWeeklyMap[item.itemCode];
+                                                    const total = w ? w.w1 + w.w2 + w.w3 + w.w4 : 0;
+                                                    return (
+                                                        <span className={`font-bold ${total > 0 ? 'text-error' : 'opacity-40'}`}>
+                                                            {total}
+                                                        </span>
+                                                    );
+                                                })()}
+                                            </td>
                                             <td><span className={`font-bold ${item.quantity <= item.minimum ? "text-error" : item.quantity <= item.minimum * 1.5 ? "text-warning" : ""}`}>{item.quantity}</span></td>
                                             <td>{item.qtyPerBox || 'N/A'}</td>
                                             <td>{item.uom}</td>
@@ -784,10 +892,23 @@ export default function Export({ tableData }) {
                                                     {isNearExpiration && <span className="text-xs ml-1">(Near expiry)</span>}
                                                 </span>
                                             </td>
+                                            <td className="text-center">
+                                                {(() => {
+                                                    const qty = item.quantity;
+                                                    const min = item.minimum;
+                                                    if (min == null || qty == null)
+                                                        return <span className="opacity-40 text-xs">—</span>;
+                                                    if (qty <= min)
+                                                        return <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">Critical</span>;
+                                                    if (qty <= min + 5)
+                                                        return <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-yellow-100 text-yellow-700 border border-yellow-300 whitespace-nowrap">Low Stock</span>;
+                                                    return <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700 border border-green-300 whitespace-nowrap">Normal</span>;
+                                                })()}
+                                            </td>
                                         </tr>
                                     );
                                 }) : (
-                                    <tr><td colSpan="12" className="text-center opacity-50">{searchTerms[tableKey] ? `No results for "${searchTerms[tableKey]}"` : 'No consigned inventory data available'}</td></tr>
+                                    <tr><td colSpan="18" className="text-center opacity-50">{searchTerms[tableKey] ? `No results for "${searchTerms[tableKey]}"` : 'No consigned inventory data available'}</td></tr>
                                 )}
                             </tbody>
                         </table>
