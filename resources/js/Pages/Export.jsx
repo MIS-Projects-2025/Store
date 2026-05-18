@@ -823,8 +823,9 @@ export default function Export({ tableData }) {
             [weekLabels[1]]:     w2,
             [weekLabels[2]]:     w3,
             [weekLabels[3]]:     w4,
-            'AUD':               total30d,
-            soh:                 item.quantity,
+            'Total (30d)':       total30d,
+            'AUM':               parseFloat((total30d / 4).toFixed(2)),
+            soh:            item.quantity,
             qtyPerBox:           item.qtyPerBox,
             uom:                 item.uom,
             binLocation:         item.binLocation,
@@ -844,7 +845,7 @@ export default function Export({ tableData }) {
                     </div>
                     <div className="overflow-x-auto">
                         <table className="table table-zebra [&_th]:border-y [&_th]:border-base-content/20 [&_td]:border-y [&_td]:border-base-content/20">
-<thead><tr><th>Item Code</th><th>Material Description</th><th>Category</th><th>Supplier</th><th className="text-center">{weekLabels[0]}</th><th className="text-center">{weekLabels[1]}</th><th className="text-center">{weekLabels[2]}</th><th className="text-center">{weekLabels[3]}</th><th className="text-center">AUD</th><th>SOH</th><th>Qty per Box</th><th>UOM</th><th>Bin Location</th><th>Minimum</th><th>Maximum</th><th>Price</th><th>Expiration</th><th className="text-center">Health Status</th></tr></thead>
+<thead><tr><th>Item Code</th><th>Material Description</th><th>Category</th><th>Supplier</th><th className="text-center">{weekLabels[0]}</th><th className="text-center">{weekLabels[1]}</th><th className="text-center">{weekLabels[2]}</th><th className="text-center">{weekLabels[3]}</th><th className="text-center">Total (30d)</th><th className="text-center">AUM</th><th>SOH</th><th>Qty per Box</th><th>UOM</th><th>Bin Location</th><th>Minimum</th><th>Maximum</th><th>Price</th><th>Expiration</th><th className="text-center">Health Status</th></tr></thead>
                             <tbody>
                                 {data.length > 0 ? data.map((item, index) => {
                                     const today = new Date();
@@ -868,17 +869,29 @@ export default function Export({ tableData }) {
                                                 );
                                             })}
                                             <td className="text-center">
-                                                {(() => {
-                                                    const w = consignedIssuedWeeklyMap[item.itemCode];
-                                                    const total = w ? w.w1 + w.w2 + w.w3 + w.w4 : 0;
-                                                    return (
-                                                        <span className={`font-bold ${total > 0 ? 'text-error' : 'opacity-40'}`}>
-                                                            {total}
-                                                        </span>
-                                                    );
-                                                })()}
-                                            </td>
-                                            <td><span className={`font-bold ${item.quantity <= item.minimum ? "text-error" : item.quantity <= item.minimum * 1.5 ? "text-warning" : ""}`}>{item.quantity}</span></td>
+    {(() => {
+        const w = consignedIssuedWeeklyMap[item.itemCode];
+        const total = w ? w.w1 + w.w2 + w.w3 + w.w4 : 0;
+        return (
+            <span className={`font-bold ${total > 0 ? 'text-error' : 'opacity-40'}`}>
+                {total}
+            </span>
+        );
+    })()}
+</td>
+<td className="text-center">
+    {(() => {
+        const w = consignedIssuedWeeklyMap[item.itemCode];
+        const total = w ? w.w1 + w.w2 + w.w3 + w.w4 : 0;
+        const aum = (total / 4).toFixed(2);
+        return (
+            <span className={`font-bold ${total > 0 ? 'text-warning' : 'opacity-40'}`}>
+                {aum}
+            </span>
+        );
+    })()}
+</td>
+<td><span className={`font-bold ${item.quantity <= item.minimum ? "text-error" : item.quantity <= item.minimum * 1.5 ? "text-warning" : ""}`}>{item.quantity}</span></td>
                                             <td>{item.qtyPerBox || 'N/A'}</td>
                                             <td>{item.uom}</td>
                                             <td>{item.binLocation}</td>
