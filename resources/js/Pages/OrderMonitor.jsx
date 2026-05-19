@@ -1,6 +1,7 @@
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout";
 import { Head, router } from "@inertiajs/react";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+
 import { 
     EyeOutlined, 
     CheckCircleOutlined,
@@ -110,13 +111,52 @@ const ApproverFilter = ({ approvers, selected, onSelect }) => (
     </div>
 );
 
+// -------------------- Pagination --------------------
+const Pagination = ({ current, last, onPageChange }) => {
+    if (last <= 1) return null;
+
+    const pages = [];
+    const delta = 2;
+    const left  = Math.max(1, current - delta);
+    const right = Math.min(last, current + delta);
+
+    if (left > 1)    { pages.push(1); if (left > 2) pages.push('...'); }
+    for (let i = left; i <= right; i++) pages.push(i);
+    if (right < last) { if (right < last - 1) pages.push('...'); pages.push(last); }
+
+    return (
+        <div className="flex justify-center items-center gap-1 mt-4 flex-wrap">
+            <button
+                className="btn btn-sm btn-ghost"
+                disabled={current === 1}
+                onClick={() => onPageChange(current - 1)}
+            >«</button>
+            {pages.map((p, i) =>
+                p === '...'
+                    ? <span key={`ellipsis-${i}`} className="px-2 text-base-content/40">…</span>
+                    : <button
+                        key={p}
+                        className={`btn btn-sm ${current === p ? 'btn-neutral' : 'btn-ghost'}`}
+                        onClick={() => onPageChange(p)}
+                    >{p}</button>
+            )}
+            <button
+                className="btn btn-sm btn-ghost"
+                disabled={current === last}
+                onClick={() => onPageChange(current + 1)}
+            >»</button>
+        </div>
+    );
+};
+
 export default function OrderMonitor({ 
-    consignedData  = [], 
-    suppliesData   = [], 
-    consumableData = [],
+    consignedData  = { data: [], current_page: 1, last_page: 1, per_page: 20, total: 0 }, 
+    suppliesData   = { data: [], current_page: 1, last_page: 1, per_page: 20, total: 0 }, 
+    consumableData = { data: [], current_page: 1, last_page: 1, per_page: 20, total: 0 },
     isConsignedUser = false,
     isStoreUser     = false,
     isRegularUser   = false,
+    filters         = {},
 }) {
     useEffect(() => {
         console.log('=== ORDER MONITOR PROPS DEBUG ===');
@@ -130,7 +170,13 @@ export default function OrderMonitor({
     const [orderItems, setOrderItems]       = useState([]);
     const [isLoading, setIsLoading]         = useState(false);
 
-    const [searchTerms, setSearchTerms] = useState({ consigned: '', supplies: '', consumable: '' });
+    const [searchTerms, setSearchTerms] = useState({
+        consigned:  filters?.search_consigned  ?? '',
+        supplies:   filters?.search_supplies   ?? '',
+        consumable: filters?.search_consumable ?? '',
+    });
+    const [pages, setPages] = useState({ consigned: 1, supplies: 1, consumable: 1 });
+    const searchTimeouts = useRef({});
 
     // Selected approver per tab (null = show All)
     const [suppliesApprover,   setSuppliesApprover]   = useState(null);
@@ -171,29 +217,55 @@ export default function OrderMonitor({
     // ==================== DERIVE UNIQUE APPROVERS ====================
     // Pull distinct approver names from each dataset to populate the filter pills
     const suppliesApprovers = useMemo(() =>
-        [...new Set(suppliesData.map(r => r.approver).filter(Boolean))].sort(),
+        [...new Set((suppliesData.data ?? []).map(r => r.approver).filter(Boolean))].sort(),
     [suppliesData]);
 
     const consumableApprovers = useMemo(() =>
-        [...new Set(consumableData.map(r => r.approver).filter(Boolean))].sort(),
+        [...new Set((consumableData.data ?? []).map(r => r.approver).filter(Boolean))].sort(),
     [consumableData]);
 
     // ==================== SORTED + FILTERED DATA ====================
+// Search is now server-side — just apply approver filter client-side on current page
     const filteredConsigned = useMemo(() =>
-        applySearch(sortByLatest(consignedData), searchTerms.consigned),
-    [consignedData, searchTerms.consigned]);
+        consignedData.data ?? [],
+    [consignedData]);
 
     const filteredSupplies = useMemo(() => {
-        let data = sortByLatest(suppliesData);
+        let data = suppliesData.data ?? [];
         if (suppliesApprover) data = data.filter(r => r.approver === suppliesApprover);
-        return applySearch(data, searchTerms.supplies);
-    }, [suppliesData, suppliesApprover, searchTerms.supplies]);
+        return data;
+    }, [suppliesData, suppliesApprover]);
 
     const filteredConsumable = useMemo(() => {
-        let data = sortByLatest(consumableData);
+        let data = consumableData.data ?? [];
         if (consumableApprover) data = data.filter(r => r.approver === consumableApprover);
-        return applySearch(data, searchTerms.consumable);
-    }, [consumableData, consumableApprover, searchTerms.consumable]);
+        return data;
+    }, [consumableData, consumableApprover]);
+
+    const handleSearch = (tab, value) => {
+        setSearchTerms(prev => ({ ...prev, [tab]: value }));
+        setPages(prev => ({ ...prev, [tab]: 1 }));
+
+        clearTimeout(searchTimeouts.current[tab]);
+        searchTimeouts.current[tab] = setTimeout(() => {
+            router.reload({
+                data: {
+                    search_consigned:  tab === 'consigned'  ? value : searchTerms.consigned,
+                    search_supplies:   tab === 'supplies'   ? value : searchTerms.supplies,
+                    search_consumable: tab === 'consumable' ? value : searchTerms.consumable,
+                    consigned_page:  1,
+                    supplies_page:   1,
+                    consumable_page: 1,
+                },
+                only: [
+                    tab === 'consigned'  ? 'consignedData'  :
+                    tab === 'supplies'   ? 'suppliesData'   : 'consumableData'
+                ],
+                preserveState: true,
+                preserveScroll: true,
+            });
+        }, 400);
+    };
 
     // ==================== FETCH ORDER DETAILS ====================
     const fetchOrderDetails = async (mrsNo, type) => {
@@ -231,8 +303,25 @@ export default function OrderMonitor({
             case "Consigned":                  return consignedData;
             case "Supplies":                   return suppliesData;
             case "Consumable and Spare parts": return consumableData;
-            default:                           return [];
+            default:                           return { data: [], total: 0 };
         }
+    };
+
+    const handlePageChange = (tab, page) => {
+        setPages(prev => ({ ...prev, [tab]: page }));
+        router.reload({
+            data: {
+                consigned_page:  tab === 'consigned'  ? page : pages.consigned,
+                supplies_page:   tab === 'supplies'   ? page : pages.supplies,
+                consumable_page: tab === 'consumable' ? page : pages.consumable,
+            },
+            only: [
+                tab === 'consigned'  ? 'consignedData'  :
+                tab === 'supplies'   ? 'suppliesData'   : 'consumableData'
+            ],
+            preserveState: true,
+            preserveScroll: true,
+        });
     };
 
     // ==================== CONSIGNED TABLE ====================
@@ -241,7 +330,8 @@ export default function OrderMonitor({
             <div className="flex items-center justify-between mb-3">
                 <SearchBar
                     value={searchTerms.consigned}
-                    onChange={(val) => setSearchTerms(prev => ({ ...prev, consigned: val }))}
+                                        onChange={(val) => handleSearch('consigned', val)}
+
                     placeholder="Search by MRS no, employee, station..."
                 />
                 <span className="text-sm text-base-content/60 ml-4 whitespace-nowrap">
@@ -288,7 +378,12 @@ export default function OrderMonitor({
                         )}
                     </tbody>
                 </table>
-            </div>
+                </div>
+            <Pagination
+                current={consignedData.current_page ?? 1}
+                last={consignedData.last_page ?? 1}
+                onPageChange={(page) => handlePageChange('consigned', page)}
+            />
         </div>
     );
 
@@ -305,7 +400,7 @@ export default function OrderMonitor({
             <div className="flex items-center justify-between mb-3">
                 <SearchBar
                     value={searchTerms.supplies}
-                    onChange={(val) => setSearchTerms(prev => ({ ...prev, supplies: val }))}
+                    onChange={(val) => handleSearch('supplies', val)}
                     placeholder="Search by MRS no, requestor, department..."
                 />
                 <span className="text-sm text-base-content/60 ml-4 whitespace-nowrap">
@@ -362,7 +457,12 @@ export default function OrderMonitor({
                         )}
                     </tbody>
                 </table>
-            </div>
+</div>
+            <Pagination
+                current={suppliesData.current_page ?? 1}
+                last={suppliesData.last_page ?? 1}
+                onPageChange={(page) => handlePageChange('supplies', page)}
+            />
         </div>
     );
 
@@ -379,7 +479,7 @@ export default function OrderMonitor({
             <div className="flex items-center justify-between mb-3">
                 <SearchBar
                     value={searchTerms.consumable}
-                    onChange={(val) => setSearchTerms(prev => ({ ...prev, consumable: val }))}
+                    onChange={(val) => handleSearch('consumable', val)}
                     placeholder="Search by MRS no, requestor, department..."
                 />
                 <span className="text-sm text-base-content/60 ml-4 whitespace-nowrap">
@@ -436,7 +536,12 @@ export default function OrderMonitor({
                         )}
                     </tbody>
                 </table>
-            </div>
+</div>
+            <Pagination
+                current={consumableData.current_page ?? 1}
+                last={consumableData.last_page ?? 1}
+                onPageChange={(page) => handlePageChange('consumable', page)}
+            />
         </div>
     );
 
@@ -459,7 +564,7 @@ export default function OrderMonitor({
                         <div className="flex justify-between items-center">
                             <h2 className="card-title text-3xl">Order Monitor</h2>
                             <div className="text-sm text-base-content/60">
-                                Total Orders: {getCurrentData().length || 0}
+                                Total Orders: {getCurrentData().total ?? 0}
                             </div>
                         </div>
 
