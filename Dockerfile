@@ -1,0 +1,39 @@
+FROM php:8.2-fpm
+
+RUN apt-get update && apt-get install -y \
+    git curl libpng-dev libonig-dev libxml2-dev \
+    libzip-dev zip unzip nodejs npm \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd zip opcache
+
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+COPY opcache.ini /usr/local/etc/php/conf.d/opcache.ini
+
+WORKDIR /var/www
+COPY . .
+
+RUN composer install --no-dev --optimize-autoloader
+
+ARG VITE_REVERB_APP_KEY
+ARG VITE_REVERB_HOST
+ARG VITE_REVERB_PORT
+ARG VITE_REVERB_SCHEME
+
+ENV VITE_REVERB_APP_KEY=$VITE_REVERB_APP_KEY
+ENV VITE_REVERB_HOST=$VITE_REVERB_HOST
+ENV VITE_REVERB_PORT=$VITE_REVERB_PORT
+ENV VITE_REVERB_SCHEME=$VITE_REVERB_SCHEME
+
+RUN npm ci && npm run build && rm -rf node_modules
+
+RUN chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache \
+    && chmod -R 775 /var/www/storage /var/www/bootstrap/cache
+
+RUN echo '[www]\nuser = www-data\ngroup = www-data\nlisten = 0.0.0.0:9000\npm = dynamic\npm.max_children = 5\npm.start_servers = 2\npm.min_spare_servers = 1\npm.max_spare_servers = 3' > /usr/local/etc/php-fpm.d/www.conf
+
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["php-fpm"]
