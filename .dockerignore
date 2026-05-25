@@ -1,5 +1,14 @@
-node_modules
-.git
+vendor/
+node_modules/
+.git/
 .env.backup
 .env.production
+tests/
+.phpunit.cache/
+.github/
+storage/logs/
+storage/framework/cache/
+storage/framework/sessions/
+storage/framework/views/
+*.md
 !.env
