@@ -549,6 +549,8 @@ export default function Export({ tableData }) {
         () => new Date().toISOString().split("T")[0],
     );
 
+    const [showWeeklyColumns, setShowWeeklyColumns] = useState(false);
+
     const itemsPerPage = 10;
 
     const updateSearchTerm = (tableKey, value) => {
@@ -1755,6 +1757,13 @@ export default function Export({ tableData }) {
                                     Viewing as of {consignedRefDate}
                                 </span>
                             )}
+                            <button
+                                className={`btn btn-sm ${showWeeklyColumns ? "btn-outline btn-active" : "btn-ghost"}`}
+                                onClick={() => setShowWeeklyColumns((v) => !v)}
+                            >
+                                {showWeeklyColumns ? "Hide" : "Show"} Weekly
+                                Breakdown
+                            </button>
                         </div>
                         <p className="text-xs opacity-50 w-full -mt-2">
                             Sets the "today" reference for W1–W4 ranges (4-week
@@ -1780,19 +1789,25 @@ export default function Export({ tableData }) {
                                     <th>Category</th>
                                     <th>Supplier</th>
                                     {/* 4 weekly columns */}
-                                    <th className="text-center">
-                                        {weekLabels[0]}
-                                    </th>
-                                    <th className="text-center">
-                                        {weekLabels[1]}
-                                    </th>
-                                    <th className="text-center">
-                                        {weekLabels[2]}
-                                    </th>
-                                    <th className="text-center">
-                                        {weekLabels[3]}
-                                    </th>
-                                    <th className="text-center">Total (4w)</th>
+                                    {showWeeklyColumns && (
+                                        <>
+                                            <th className="text-center">
+                                                {weekLabels[0]}
+                                            </th>
+                                            <th className="text-center">
+                                                {weekLabels[1]}
+                                            </th>
+                                            <th className="text-center">
+                                                {weekLabels[2]}
+                                            </th>
+                                            <th className="text-center">
+                                                {weekLabels[3]}
+                                            </th>
+                                            <th className="text-center">
+                                                Total (4w)
+                                            </th>
+                                        </>
+                                    )}
                                     <th className="text-center">
                                         Weekly Usage
                                     </th>
@@ -1895,31 +1910,35 @@ export default function Export({ tableData }) {
                                                     </span>
                                                 </td>
                                                 {/* W1–W4 */}
-                                                {[
-                                                    w1val,
-                                                    w2val,
-                                                    w3val,
-                                                    w4val,
-                                                ].map((wv, wi) => (
-                                                    <td
-                                                        key={wi}
-                                                        className="text-center"
-                                                    >
-                                                        <span
-                                                            className={`font-bold ${wv > 0 ? "text-warning" : "opacity-40"}`}
-                                                        >
-                                                            {wv}
-                                                        </span>
-                                                    </td>
-                                                ))}
-                                                {/* Total 4w */}
-                                                <td className="text-center">
-                                                    <span
-                                                        className={`font-bold ${total4w > 0 ? "text-error" : "opacity-40"}`}
-                                                    >
-                                                        {total4w}
-                                                    </span>
-                                                </td>
+                                                {showWeeklyColumns && (
+                                                    <>
+                                                        {[
+                                                            w1val,
+                                                            w2val,
+                                                            w3val,
+                                                            w4val,
+                                                        ].map((wv, wi) => (
+                                                            <td
+                                                                key={wi}
+                                                                className="text-center"
+                                                            >
+                                                                <span
+                                                                    className={`font-bold ${wv > 0 ? "text-warning" : "opacity-40"}`}
+                                                                >
+                                                                    {wv}
+                                                                </span>
+                                                            </td>
+                                                        ))}
+                                                        {/* Total 4w */}
+                                                        <td className="text-center">
+                                                            <span
+                                                                className={`font-bold ${total4w > 0 ? "text-error" : "opacity-40"}`}
+                                                            >
+                                                                {total4w}
+                                                            </span>
+                                                        </td>
+                                                    </>
+                                                )}
                                                 {/* Weekly Usage */}
                                                 <td className="text-center">
                                                     <span
