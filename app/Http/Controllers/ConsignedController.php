@@ -177,16 +177,19 @@ class ConsignedController extends Controller
     public function index()
     {
         // Get grouped consigned data with details
-        $consignedData = Consigned::with('details')
-            ->orderBy('created_at', 'desc')
-            ->get()
-            ->groupBy('commonality')
-            ->map(function ($group) {
-                $firstItem = $group->first();
-                
-                // Get all details for this commonality
-                $details = ConsignedDetail::where('commonality', $firstItem->commonality)
-                    ->get();
+       $allDetails = ConsignedDetail::orderBy('item_code')
+    ->orderBy('supplier')
+    ->orderBy('expiration')
+    ->get()
+    ->groupBy('commonality');
+
+$consignedData = Consigned::orderBy('created_at', 'desc')
+    ->get()
+    ->groupBy('commonality')
+    ->map(function ($group) use ($allDetails) {
+        $firstItem = $group->first();
+
+        $details = $allDetails->get($firstItem->commonality, collect());
 
                 // Group by item_code + supplier + mat_description, then select nearest expiration
                 $uniqueCombinations = [];
@@ -254,26 +257,7 @@ class ConsignedController extends Controller
                 // Get current selection
                 $selectedItemCode = $firstItem->selected_itemcode;
                 $selectedSupplier = $firstItem->selected_supplier;
-                
-                // ✅ NEW: Check if selected item has qty = 0, auto-select next item
-                if ($selectedItemCode && $selectedSupplier) {
-                    $selectedDetail = ConsignedDetail::on('newstore')
-                        ->where('commonality', $firstItem->commonality)
-                        ->where('item_code', $selectedItemCode)
-                        ->where('supplier', $selectedSupplier)
-                        ->where('qty', '>', 0)
-                        ->first();
-                    
-                    // If selected item has 0 qty, auto-select next available item
-                    if ($selectedDetail && $selectedDetail->qty <= 0) {
-                        $newSelection = $this->autoSelectNextItem($firstItem->id, $firstItem->commonality);
-                        
-                        if ($newSelection) {
-                            $selectedItemCode = $newSelection->item_code;
-                            $selectedSupplier = $newSelection->supplier;
-                        }
-                    }
-                }
+            
                 
                 // Auto-select first combination if no selection exists
                 if (empty($selectedItemCode) && empty($selectedSupplier) && count($combinations) > 0) {
@@ -425,7 +409,6 @@ class ConsignedController extends Controller
                 'qty' => $validated['qty'],
                 'qty_per_box' => $validated['qty_per_box'],
                 'minimum' => $validated['minimum'],
-                'maximum' => $validated['maximum'],
                 'price' => $validated['price'],
                 'bin_location' => $validated['bin_location'],
             ]);
@@ -480,7 +463,6 @@ class ConsignedController extends Controller
                 'qty' => $detail->qty,
                 'qty_per_box' => $detail->qty_per_box,
                 'minimum' => $detail->minimum,
-                'maximum' => $detail->maximum,
                 'price' => $detail->price,
                 'bin_location' => $detail->bin_location,
             ];
@@ -529,7 +511,6 @@ class ConsignedController extends Controller
             'qty' => 'nullable|integer',
             'qty_per_box' => 'nullable|integer',
             'minimum' => 'nullable|integer',
-            'maximum' => 'nullable|integer',
             'price' => 'nullable|numeric',
             'bin_location' => 'nullable|string|max:255',
         ]);
@@ -1117,11 +1098,18 @@ class ConsignedController extends Controller
                         );
                     }
 
-                    // Check for duplicate
+                    // Check for duplicate including expiration date
                     $existingDetail = ConsignedDetail::on('newstore')
                         ->where('commonality', $finalCommonality)
                         ->where('item_code', $itemCode)
                         ->where('supplier', $supplier)
+                        ->where(function ($query) use ($expiration) {
+                            if (empty($expiration)) {
+                                $query->whereNull('expiration');
+                            } else {
+                                $query->where('expiration', $expiration);
+                            }
+                        })
                         ->first();
 
                     if ($existingDetail) {
@@ -1258,7 +1246,9 @@ class ConsignedController extends Controller
         if (!$data) return $data;
 
         if (is_string($data)) {
-            $data = json_decode($data, true);
+            $decoded = json_decode($data, true);
+            if (json_last_error() !== JSON_ERROR_NONE) return $data;
+            $data = $decoded;
         }
 
         if (!is_array($data)) return $data;
@@ -1330,6 +1320,27 @@ class ConsignedController extends Controller
             ]);
             
             return response()->json(['error' => 'Failed to get details'], 500);
+        }
+    }
+
+    public function recalibrateMinimum()
+    {
+        try {
+            $exitCode = \Artisan::call('consigned:update-minimum');
+
+            if ($exitCode === 0) {
+                return back()->with('success', 'Minimum recalibrated successfully!');
+            }
+
+            return back()->withErrors(['error' => 'Recalibration failed. Check logs for details.']);
+
+        } catch (\Exception $e) {
+            \Log::error('Failed to recalibrate minimum', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return back()->withErrors(['error' => 'Failed to recalibrate: ' . $e->getMessage()]);
         }
     }
 }

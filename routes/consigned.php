@@ -35,6 +35,8 @@ Route::prefix($app_name)
         ->name('consigned.history.main');
     Route::get('/consigned/{id}/history-detail', [ConsignedController::class, 'getConsignedDetailHistory'])
         ->name('consigned.history.detail');
+        Route::post('/consigned/recalibrate-minimum', [ConsignedController::class, 'recalibrateMinimum'])
+    ->name('consigned.recalibrate-minimum');
 
     
 
