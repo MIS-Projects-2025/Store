@@ -105,6 +105,43 @@ const applySearch = (data, searchTerm) => {
     );
 };
 
+// ─── Consigned calibration helpers ────────────────────────────────────────────
+const LOOKBACK_WEEKS = 4;
+const BUFFER_TRAY = 2.0;
+const BUFFER_DEFAULT = 1.5;
+
+/** Buffer multiplier: 2.0 if category contains "Tray", else 1.5 */
+const getBuffer = (category) =>
+    category && category.toLowerCase().includes("tray")
+        ? BUFFER_TRAY
+        : BUFFER_DEFAULT;
+
+/**
+ * Given totalIssued over 4 weeks and a buffer, return { weeklyUsage, recalibMin }.
+ * weeklyUsage = totalIssued / 4
+ * recalibMin  = ceil(weeklyUsage × buffer)   (null when no issued history)
+ */
+const calcConsignedMetrics = (totalIssued, category) => {
+    if (!totalIssued || totalIssued === 0)
+        return { weeklyUsage: 0, recalibMin: null };
+    const weeklyUsage = totalIssued / LOOKBACK_WEEKS;
+    const buffer = getBuffer(category);
+    const recalibMin = Math.ceil(weeklyUsage * buffer);
+    return { weeklyUsage: parseFloat(weeklyUsage.toFixed(2)), recalibMin };
+};
+
+/**
+ * Stock remark based on SOH vs minimum.
+ * Zero Stock → Critical → Low Stock → Healthy
+ */
+const getConsignedRemark = (qty, effectiveMin) => {
+    if (qty === 0 || qty === null || qty === undefined) return "Zero Stock";
+    if (effectiveMin == null || effectiveMin === 0) return "—";
+    if (qty <= effectiveMin) return "Critical";
+    if (qty <= effectiveMin * 1.5) return "Low Stock";
+    return "Healthy";
+};
+
 // ─── SHARED UI COMPONENTS ──────────────────────────────────────────────────────
 
 const SearchBar = ({ value, onChange, placeholder = "Search..." }) => (
@@ -420,7 +457,7 @@ const ACTION_LABELS = {
     returned: { label: "Returned", badge: "badge-success" },
     quantity_added: { label: "Stock Added", badge: "badge-info" },
     updated: { label: "Updated", badge: "badge-warning" },
-    no_action: { label: "No Action", badge: "badge-ghost opacity-40" }, // ← add this
+    no_action: { label: "No Action", badge: "badge-ghost opacity-40" },
 };
 
 // ─── Main Export Component ─────────────────────────────────────────────────────
@@ -506,7 +543,8 @@ export default function Export({ tableData }) {
         },
     });
 
-    // ── Inventory History: selected items (Set of itemCodes) ─────────────────
+    const [selectedHistoryItems, setSelectedHistoryItems] = useState(new Set());
+
     const [consignedRefDate, setConsignedRefDate] = useState(
         () => new Date().toISOString().split("T")[0],
     );
@@ -679,10 +717,14 @@ export default function Export({ tableData }) {
     const consignedInventoryHistoryData =
         tableData?.consigned?.inventoryHistory || [];
 
+    // ── Consigned: 4-week issued totals keyed by itemCode ────────────────────
     const { consignedIssuedWeeklyMap, weekLabels } = useMemo(() => {
         const refDate = new Date(consignedRefDate);
         refDate.setHours(23, 59, 59, 999);
 
+        // Build 4 rolling week ranges ending at refDate
+        // W4 = most recent week (days 0-6 before refDate)
+        // W1 = oldest week (days 21-27 before refDate)
         const getRange = (daysAgoStart, daysAgoEnd) => {
             const start = new Date(refDate);
             start.setDate(refDate.getDate() - daysAgoStart);
@@ -694,8 +736,10 @@ export default function Export({ tableData }) {
         };
 
         const weekRanges = [
-            { key: "w1", ...getRange(13, 7) },
-            { key: "w2", ...getRange(6, 0) },
+            { key: "w1", ...getRange(27, 21) },
+            { key: "w2", ...getRange(20, 14) },
+            { key: "w3", ...getRange(13, 7) },
+            { key: "w4", ...getRange(6, 0) },
         ];
 
         const fmt = (d) => {
@@ -713,7 +757,8 @@ export default function Export({ tableData }) {
             if (!item.orderDate || !item.itemCode) return;
             const date = new Date(item.orderDate);
             const qty = Number(item.issuedQuantity) || 0;
-            if (!map[item.itemCode]) map[item.itemCode] = { w1: 0, w2: 0 };
+            if (!map[item.itemCode])
+                map[item.itemCode] = { w1: 0, w2: 0, w3: 0, w4: 0 };
             for (const { key, start, end } of weekRanges) {
                 if (date >= start && date <= end) {
                     map[item.itemCode][key] += qty;
@@ -1576,6 +1621,7 @@ export default function Export({ tableData }) {
             );
             const { data, totalPages, currentPage, totalItems } =
                 getPaginatedData(searchedData, tableKey);
+
             return (
                 <CardWrap>
                     <CardHeader
@@ -1595,14 +1641,15 @@ export default function Export({ tableData }) {
                                     consignedIssuedWeeklyMap[item.itemCode];
                                 const w1 = w?.w1 || 0;
                                 const w2 = w?.w2 || 0;
-                                const total14d = w1 + w2; // ← 14 days only
-                                const aum = parseFloat(
-                                    (total14d / 2).toFixed(2),
-                                );
-                                const recalibMin =
-                                    total14d > 0
-                                        ? Math.ceil((total14d / 2) * 2)
-                                        : item.minimum;
+                                const w3 = w?.w3 || 0;
+                                const w4 = w?.w4 || 0;
+                                const total4w = w1 + w2 + w3 + w4;
+                                const { weeklyUsage, recalibMin } =
+                                    calcConsignedMetrics(
+                                        total4w,
+                                        item.category,
+                                    );
+                                const effectiveMin = recalibMin ?? item.minimum;
 
                                 const expirationDate = item.expiration
                                     ? new Date(item.expiration)
@@ -1618,16 +1665,17 @@ export default function Export({ tableData }) {
                                                 30 * 24 * 60 * 60 * 1000,
                                         );
 
-                                const qty = item.quantity;
-                                const effectiveMin = recalibMin ?? item.minimum;
-                                const remarks =
-                                    effectiveMin == null || qty == null
-                                        ? "—"
-                                        : qty <= effectiveMin
-                                          ? "Critical"
-                                          : qty <= effectiveMin * 1.5
-                                            ? "Low Stock"
-                                            : "Normal";
+                                const qty = item.quantity ?? 0;
+                                const delta =
+                                    effectiveMin != null
+                                        ? qty - effectiveMin
+                                        : "—";
+                                const weeksOfInventory =
+                                    effectiveMin != null && effectiveMin > 0
+                                        ? parseFloat(
+                                              (qty / effectiveMin).toFixed(2),
+                                          )
+                                        : "—";
 
                                 return {
                                     itemCode: item.itemCode,
@@ -1637,13 +1685,20 @@ export default function Export({ tableData }) {
                                     supplier: item.supplier,
                                     [weekLabels[0]]: w1,
                                     [weekLabels[1]]: w2,
-                                    "Total (14d)": total14d,
-                                    AUM: aum,
-                                    minimum: effectiveMin,
-                                    soh: item.quantity,
+                                    [weekLabels[2]]: w3,
+                                    [weekLabels[3]]: w4,
+                                    "Total (4w)": total4w,
+                                    "Weekly Usage": weeklyUsage,
+                                    "Target Wks of Inventory": getBuffer(
+                                        item.category,
+                                    ),
+                                    soh: qty,
+                                    "Delta (SOH - Min)": delta,
+                                    "Weeks of Inventory": weeksOfInventory,
                                     qtyPerBox: item.qtyPerBox,
                                     uom: item.uom,
                                     binLocation: item.binLocation,
+                                    minimum: effectiveMin ?? "—",
                                     price: item.price,
                                     expiration: item.expiration || "No expiry",
                                     expirationStatus: isExpired
@@ -1651,7 +1706,10 @@ export default function Export({ tableData }) {
                                         : isNearExpiration
                                           ? "Near Expiry"
                                           : "OK",
-                                    remarks: remarks,
+                                    remarks: getConsignedRemark(
+                                        qty,
+                                        effectiveMin,
+                                    ),
                                 };
                             });
                             exportToCSV(
@@ -1661,6 +1719,7 @@ export default function Export({ tableData }) {
                         }}
                         exportDisabled={consignedInventoryData.length === 0}
                     />
+
                     {/* ── Reference Date Filter ── */}
                     <div className="flex flex-wrap gap-4 items-end mb-4 p-4 border border-base-content/20 rounded-lg">
                         <div className="form-control">
@@ -1698,9 +1757,10 @@ export default function Export({ tableData }) {
                             )}
                         </div>
                         <p className="text-xs opacity-50 w-full -mt-2">
-                            Sets the "today" reference for W1/W2 ranges and
-                            recalibrates Minimum and Remarks without saving to
-                            the database.
+                            Sets the "today" reference for W1–W4 ranges (4-week
+                            lookback). Minimum = ceil(Weekly Usage × buffer),
+                            where buffer is 2.0 for "Tray" categories and 1.5
+                            for all others.
                         </p>
                     </div>
 
@@ -1719,19 +1779,35 @@ export default function Export({ tableData }) {
                                     <th>Material Description</th>
                                     <th>Category</th>
                                     <th>Supplier</th>
+                                    {/* 4 weekly columns */}
                                     <th className="text-center">
                                         {weekLabels[0]}
                                     </th>
                                     <th className="text-center">
                                         {weekLabels[1]}
                                     </th>
-                                    <th className="text-center">Total (14d)</th>
-                                    <th className="text-center">AUM</th>
+                                    <th className="text-center">
+                                        {weekLabels[2]}
+                                    </th>
+                                    <th className="text-center">
+                                        {weekLabels[3]}
+                                    </th>
+                                    <th className="text-center">Total (4w)</th>
+                                    <th className="text-center">
+                                        Weekly Usage
+                                    </th>
                                     <th>SOH</th>
+                                    {/* ── new columns right after SOH ── */}
+                                    <th className="text-center">
+                                        Delta (SOH − Min)
+                                    </th>
+                                    <th className="text-center">
+                                        Weeks of Inventory
+                                    </th>
                                     <th>Qty per Box</th>
                                     <th>UOM</th>
                                     <th>Bin Location</th>
-                                    <th>Minimum</th>
+                                    <th className="text-center">Minimum</th>
                                     <th>Price</th>
                                     <th>Expiration</th>
                                     <th className="text-center">Remarks</th>
@@ -1767,15 +1843,38 @@ export default function Export({ tableData }) {
                                             ];
                                         const w1val = w?.w1 || 0;
                                         const w2val = w?.w2 || 0;
-                                        const total14d = w1val + w2val;
-                                        const aum = (total14d / 2).toFixed(2);
-                                        // Same formula as Artisan command: ceil((total / LOOKBACK_WEEKS) * BUFFER_WEEKS)
-                                        const recalibMin =
-                                            total14d > 0
-                                                ? Math.ceil((total14d / 2) * 2)
-                                                : null;
+                                        const w3val = w?.w3 || 0;
+                                        const w4val = w?.w4 || 0;
+                                        const total4w =
+                                            w1val + w2val + w3val + w4val;
+
+                                        const { weeklyUsage, recalibMin } =
+                                            calcConsignedMetrics(
+                                                total4w,
+                                                item.category,
+                                            );
                                         const effectiveMin =
                                             recalibMin ?? item.minimum;
+
+                                        const qty = item.quantity ?? 0;
+                                        const delta =
+                                            effectiveMin != null
+                                                ? qty - effectiveMin
+                                                : null;
+                                        const weeksOfInventory =
+                                            effectiveMin != null &&
+                                            effectiveMin > 0
+                                                ? parseFloat(
+                                                      (
+                                                          qty / effectiveMin
+                                                      ).toFixed(2),
+                                                  )
+                                                : null;
+
+                                        const remark = getConsignedRemark(
+                                            qty,
+                                            effectiveMin,
+                                        );
 
                                         return (
                                             <tr key={index}>
@@ -1795,46 +1894,106 @@ export default function Export({ tableData }) {
                                                         {item.supplier}
                                                     </span>
                                                 </td>
+                                                {/* W1–W4 */}
+                                                {[
+                                                    w1val,
+                                                    w2val,
+                                                    w3val,
+                                                    w4val,
+                                                ].map((wv, wi) => (
+                                                    <td
+                                                        key={wi}
+                                                        className="text-center"
+                                                    >
+                                                        <span
+                                                            className={`font-bold ${wv > 0 ? "text-warning" : "opacity-40"}`}
+                                                        >
+                                                            {wv}
+                                                        </span>
+                                                    </td>
+                                                ))}
+                                                {/* Total 4w */}
                                                 <td className="text-center">
                                                     <span
-                                                        className={`font-bold ${w1val > 0 ? "text-warning" : "opacity-40"}`}
+                                                        className={`font-bold ${total4w > 0 ? "text-error" : "opacity-40"}`}
                                                     >
-                                                        {w1val}
+                                                        {total4w}
                                                     </span>
                                                 </td>
+                                                {/* Weekly Usage */}
                                                 <td className="text-center">
                                                     <span
-                                                        className={`font-bold ${w2val > 0 ? "text-warning" : "opacity-40"}`}
+                                                        className={`font-bold ${weeklyUsage > 0 ? "text-warning" : "opacity-40"}`}
                                                     >
-                                                        {w2val}
+                                                        {weeklyUsage}
                                                     </span>
                                                 </td>
-                                                <td className="text-center">
-                                                    <span
-                                                        className={`font-bold ${total14d > 0 ? "text-error" : "opacity-40"}`}
-                                                    >
-                                                        {total14d}
-                                                    </span>
-                                                </td>
-                                                <td className="text-center">
-                                                    <span
-                                                        className={`font-bold ${total14d > 0 ? "text-warning" : "opacity-40"}`}
-                                                    >
-                                                        {aum}
-                                                    </span>
-                                                </td>
+                                                {/* SOH */}
                                                 <td>
                                                     <span
-                                                        className={`font-bold ${item.quantity <= effectiveMin ? "text-error" : item.quantity <= effectiveMin * 1.5 ? "text-warning" : ""}`}
+                                                        className={`font-bold ${
+                                                            qty === 0
+                                                                ? "text-error"
+                                                                : qty <=
+                                                                    (effectiveMin ??
+                                                                        0)
+                                                                  ? "text-error"
+                                                                  : qty <=
+                                                                      (effectiveMin ??
+                                                                          0) *
+                                                                          1.5
+                                                                    ? "text-warning"
+                                                                    : ""
+                                                        }`}
                                                     >
-                                                        {item.quantity}
+                                                        {qty}
                                                     </span>
+                                                </td>
+                                                {/* Delta (SOH − Min) */}
+                                                <td className="text-center">
+                                                    {delta !== null ? (
+                                                        <span
+                                                            className={`font-semibold ${delta < 0 ? "text-error" : delta === 0 ? "text-warning" : "text-success"}`}
+                                                        >
+                                                            {delta > 0
+                                                                ? `+${delta}`
+                                                                : delta}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="opacity-40">
+                                                            —
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                {/* Weeks of Inventory */}
+                                                <td className="text-center">
+                                                    {weeksOfInventory !==
+                                                    null ? (
+                                                        <span
+                                                            className={`font-semibold ${
+                                                                weeksOfInventory <
+                                                                1
+                                                                    ? "text-error"
+                                                                    : weeksOfInventory <
+                                                                        2
+                                                                      ? "text-warning"
+                                                                      : ""
+                                                            }`}
+                                                        >
+                                                            {weeksOfInventory}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="opacity-40">
+                                                            —
+                                                        </span>
+                                                    )}
                                                 </td>
                                                 <td>
                                                     {item.qtyPerBox || "N/A"}
                                                 </td>
                                                 <td>{item.uom}</td>
                                                 <td>{item.binLocation}</td>
+                                                {/* Minimum */}
                                                 <td className="text-center">
                                                     {effectiveMin ?? "—"}
                                                 </td>
@@ -1844,6 +2003,7 @@ export default function Export({ tableData }) {
                                                         ? `₱${item.price.toFixed(2)}`
                                                         : item.price || "₱0.00"}
                                                 </td>
+                                                {/* Expiration */}
                                                 <td>
                                                     <span
                                                         className={`font-medium ${isExpired ? "text-error" : isNearExpiration ? "text-warning" : ""}`}
@@ -1862,38 +2022,33 @@ export default function Export({ tableData }) {
                                                         )}
                                                     </span>
                                                 </td>
+                                                {/* Remarks */}
                                                 <td className="text-center">
                                                     {(() => {
-                                                        const qty =
-                                                            item.quantity;
-                                                        if (
-                                                            effectiveMin ==
-                                                                null ||
-                                                            qty == null
-                                                        )
-                                                            return (
-                                                                <span className="opacity-40 text-xs">
-                                                                    —
-                                                                </span>
-                                                            );
-                                                        if (qty <= effectiveMin)
-                                                            return (
-                                                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">
-                                                                    Critical
-                                                                </span>
-                                                            );
-                                                        if (
-                                                            qty <=
-                                                            effectiveMin * 1.5
-                                                        )
-                                                            return (
-                                                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-yellow-100 text-yellow-700 border border-yellow-300 whitespace-nowrap">
-                                                                    Low Stock
-                                                                </span>
-                                                            );
-                                                        return (
-                                                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700 border border-green-300 whitespace-nowrap">
-                                                                Normal
+                                                        const badgeMap = {
+                                                            "Zero Stock":
+                                                                "bg-gray-100 text-gray-700 border-gray-300",
+                                                            Critical:
+                                                                "bg-red-100 text-red-700 border-red-300",
+                                                            "Low Stock":
+                                                                "bg-yellow-100 text-yellow-700 border-yellow-300",
+                                                            Healthy:
+                                                                "bg-green-100 text-green-700 border-green-300",
+                                                            "—": "opacity-40",
+                                                        };
+                                                        const cls =
+                                                            badgeMap[remark] ??
+                                                            "opacity-40";
+                                                        return remark ===
+                                                            "—" ? (
+                                                            <span className="opacity-40 text-xs">
+                                                                —
+                                                            </span>
+                                                        ) : (
+                                                            <span
+                                                                className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border whitespace-nowrap ${cls}`}
+                                                            >
+                                                                {remark}
                                                             </span>
                                                         );
                                                     })()}
@@ -1904,7 +2059,7 @@ export default function Export({ tableData }) {
                                 ) : (
                                     <tr>
                                         <td
-                                            colSpan="17"
+                                            colSpan="20"
                                             className="text-center opacity-50"
                                         >
                                             {searchTerms[tableKey]
@@ -1929,7 +2084,7 @@ export default function Export({ tableData }) {
             );
         }
 
-        // ===== CONSIGNED INVENTORY HISTORY (NEW UI) =====
+        // ===== CONSIGNED INVENTORY HISTORY =====
         if (
             activeMainTab === "consigned" &&
             currentSubTab === "inventoryHistory"
@@ -1943,7 +2098,6 @@ export default function Export({ tableData }) {
             );
             const allItems = consignedInventoryHistoryData;
 
-            // ── Build flat action rows for selected items filtered by date ──────
             const buildActionRows = (items) => {
                 const rows = [];
 
@@ -1951,14 +2105,12 @@ export default function Export({ tableData }) {
                     let snapshots = [...(item.snapshots || [])];
                     if (!snapshots.length) return;
 
-                    // Sort ascending for fill logic
                     const sorted = [...snapshots].sort(
                         (a, b) =>
                             new Date(a.snapshotDate + " " + a.snapshotTime) -
                             new Date(b.snapshotDate + " " + b.snapshotTime),
                     );
 
-                    // Determine date range from current filter
                     let rangeStart = null;
                     let rangeEnd = null;
                     const f = filters;
@@ -1977,13 +2129,12 @@ export default function Export({ tableData }) {
                         const y = parseInt(f.selectedYear);
                         const m = parseInt(f.selectedMonth);
                         rangeStart = new Date(y, m - 1, 1);
-                        rangeEnd = new Date(y, m, 0); // last day of month
+                        rangeEnd = new Date(y, m, 0);
                     } else if (
                         f.filterType === "week" &&
                         f.selectedYear &&
                         f.selectedWeek
                     ) {
-                        // ISO week: find the Monday of that week
                         const jan4 = new Date(parseInt(f.selectedYear), 0, 4);
                         const mondayOfWeek1 = new Date(jan4);
                         mondayOfWeek1.setDate(
@@ -1999,7 +2150,6 @@ export default function Export({ tableData }) {
                     }
 
                     if (!rangeStart || !rangeEnd) {
-                        // No date fill for "all time" — just push real rows
                         sorted.forEach((s) =>
                             rows.push({
                                 user: s.user || "—",
@@ -2015,16 +2165,10 @@ export default function Export({ tableData }) {
                         return;
                     }
 
-                    // Helper: date string to comparable key
                     const toKey = (d) => d.toISOString().split("T")[0];
-
-                    // The earliest date this item has ANY history (its "creation" floor)
                     const itemBirthDate = sorted[0].snapshotDate;
-
-                    // Today's date ceiling — don't show future dates
                     const todayKey = toKey(new Date());
 
-                    // Build every day in range, clamped to [itemBirthDate, today]
                     const allDates = [];
                     const cur = new Date(rangeStart);
                     while (cur <= rangeEnd) {
@@ -2035,7 +2179,6 @@ export default function Export({ tableData }) {
                         cur.setDate(cur.getDate() + 1);
                     }
 
-                    // Group real snapshots by date
                     const snapshotsByDate = {};
                     sorted.forEach((s) => {
                         if (!snapshotsByDate[s.snapshotDate])
@@ -2043,8 +2186,6 @@ export default function Export({ tableData }) {
                         snapshotsByDate[s.snapshotDate].push(s);
                     });
 
-                    // Find the last known qty BEFORE the range starts (carry-in),
-                    // only from dates >= itemBirthDate
                     let carryQty = null;
                     sorted.forEach((s) => {
                         if (
@@ -2055,12 +2196,10 @@ export default function Export({ tableData }) {
                         }
                     });
 
-                    // If rangeStart is on or before birth date, no carry-in applies
                     if (toKey(rangeStart) <= itemBirthDate) carryQty = null;
 
                     allDates.forEach((dateKey) => {
                         if (snapshotsByDate[dateKey]) {
-                            // Real actions on this date
                             snapshotsByDate[dateKey].forEach((s) => {
                                 rows.push({
                                     user: s.user || "—",
@@ -2076,7 +2215,6 @@ export default function Export({ tableData }) {
                                 carryQty = s.qty;
                             });
                         } else {
-                            // No action — only fill if qty is already established
                             if (carryQty !== null) {
                                 rows.push({
                                     user: "—",
@@ -2095,13 +2233,10 @@ export default function Export({ tableData }) {
                 });
 
                 return rows.sort((a, b) => {
-                    // 1st: item code ascending
                     if (a.itemCode < b.itemCode) return -1;
                     if (a.itemCode > b.itemCode) return 1;
-                    // 2nd: date ascending
                     if (a.snapshotDate < b.snapshotDate) return -1;
                     if (a.snapshotDate > b.snapshotDate) return 1;
-                    // 3rd: time ascending (no-action rows go first within the day)
                     const tA =
                         a.snapshotTime === "—" ? "00:00:00" : a.snapshotTime;
                     const tB =
@@ -2110,7 +2245,6 @@ export default function Export({ tableData }) {
                 });
             };
 
-            // Items list (left panel)
             const searchedItems = applySearch(allItems, searchTerms[tableKey]);
             const {
                 data: pagedItems,
@@ -2119,7 +2253,6 @@ export default function Export({ tableData }) {
                 totalItems: itemTotalCount,
             } = getPaginatedData(searchedItems, tableKey);
 
-            // History rows for selected items
             const selectedItems = allItems.filter((i) =>
                 selectedHistoryItems.has(i.itemCode),
             );
@@ -2185,7 +2318,6 @@ export default function Export({ tableData }) {
                 exportToCSV(exportData, "consigned_inventory_history");
             };
 
-            // Selected items preview label
             const selectedCodes = [...selectedHistoryItems];
             const previewLabel =
                 selectedCodes.length === 0
@@ -2197,7 +2329,6 @@ export default function Export({ tableData }) {
 
             return (
                 <CardWrap>
-                    {/* ── Header ── */}
                     <div className="flex justify-between items-center mb-4">
                         <h3 className="text-lg font-bold">{title}</h3>
                         <div className="flex items-center gap-4">
@@ -2236,7 +2367,7 @@ export default function Export({ tableData }) {
                         </div>
                     </div>
 
-                    {/* ── Date Filter ── */}
+                    {/* Date Filter */}
                     <div className="flex flex-wrap gap-4 items-center mb-4 p-4 border border-base-content/20 rounded-lg">
                         <div className="form-control">
                             <label className="label">
@@ -2438,7 +2569,6 @@ export default function Export({ tableData }) {
                         </div>
                     </div>
 
-                    {/* ── Two-panel layout ── */}
                     <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
                         {/* LEFT: Item selector */}
                         <div className="lg:col-span-2 border border-base-content/20 rounded-lg p-3 flex flex-col gap-3">
@@ -2462,7 +2592,6 @@ export default function Export({ tableData }) {
                                     </button>
                                 </div>
                             </div>
-
                             <SearchBar
                                 value={searchTerms[tableKey]}
                                 onChange={(val) =>
@@ -2470,7 +2599,6 @@ export default function Export({ tableData }) {
                                 }
                                 placeholder="Search items..."
                             />
-
                             <div className="overflow-x-auto">
                                 <table className="table table-sm table-zebra [&_th]:border-y [&_th]:border-base-content/20 [&_td]:border-y [&_td]:border-base-content/20">
                                     <thead>
@@ -2540,7 +2668,6 @@ export default function Export({ tableData }) {
                                     </tbody>
                                 </table>
                             </div>
-
                             {itemTotalPages > 1 && (
                                 <Pagination
                                     currentPage={itemCurrentPage}
@@ -2570,7 +2697,6 @@ export default function Export({ tableData }) {
                                     </span>
                                 )}
                             </div>
-
                             <SearchBar
                                 value={searchTerms[histSearchKey] || ""}
                                 onChange={(val) => {
@@ -2585,7 +2711,6 @@ export default function Export({ tableData }) {
                                 }}
                                 placeholder="Search history records..."
                             />
-
                             {!someSelected ? (
                                 <div className="flex flex-col items-center justify-center py-16 opacity-40">
                                     <svg
