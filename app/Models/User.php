@@ -66,7 +66,7 @@ class User extends Authenticatable
     // Get all APPROVER1 and APPROVER2 EMPLOYIDs in this PRODLINE + DEPARTMENT
     $approverIds = self::where('DEPARTMENT', $department)
         ->where(function ($q) {
-            $q->whereNotNull('APPROVER1')
+            $q->whereNotNull('APP`ROVER1')
                 ->orWhereNotNull('APPROVER2');
         })
         // Add condition for EMPPOSITION (should not be >= 4)
