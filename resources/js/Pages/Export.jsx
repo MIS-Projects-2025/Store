@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import axios from "axios";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout";
 import { Head, usePage } from "@inertiajs/react";
 
@@ -103,6 +104,46 @@ const applySearch = (data, searchTerm) => {
                 String(val).toLowerCase().includes(lower),
         ),
     );
+};
+
+// ─── Consigned calibration helpers ────────────────────────────────────────────
+const LOOKBACK_WEEKS = 4;
+const BUFFER_TRAY = 2.0;
+const BUFFER_DEFAULT = 1.5;
+
+/** Buffer multiplier: 2.0 if category contains "Tray", else 1.5 */
+const getBuffer = (category) =>
+    category && category.toLowerCase().includes("tray")
+        ? BUFFER_TRAY
+        : BUFFER_DEFAULT;
+
+/**
+ * Given totalIssued over 4 weeks and a buffer, return { weeklyUsage, recalibMin }.
+ * weeklyUsage = totalIssued / 4
+ * recalibMin  = ceil(weeklyUsage × buffer)   (null when no issued history)
+ */
+const calcConsignedMetrics = (totalIssued, category) => {
+    if (!totalIssued || totalIssued === 0)
+        return { weeklyUsage: 0, recalibMin: null };
+    const weeklyUsage = totalIssued / LOOKBACK_WEEKS;
+    const buffer = getBuffer(category);
+    const recalibMin = Math.ceil(weeklyUsage * buffer);
+    return { weeklyUsage: parseFloat(weeklyUsage.toFixed(2)), recalibMin };
+};
+
+/**
+ * Stock remark based on SOH vs minimum.
+ * Zero Stock → Critical → Low Stock → Healthy
+ */
+const getConsignedRemark = (qty, effectiveMin) => {
+    if (qty === null || qty === undefined) return "No Inventory";
+    if ((!qty || qty === 0) && (!effectiveMin || effectiveMin === 0))
+        return "No Inventory";
+    if (qty === 0 || qty === null) return "Zero Stock";
+    if (!effectiveMin || effectiveMin === 0) return "Healthy";
+    if (qty <= effectiveMin) return "Critical";
+    if (qty <= effectiveMin * 1.5) return "Low Stock";
+    return "Healthy";
 };
 
 // ─── SHARED UI COMPONENTS ──────────────────────────────────────────────────────
@@ -420,7 +461,7 @@ const ACTION_LABELS = {
     returned: { label: "Returned", badge: "badge-success" },
     quantity_added: { label: "Stock Added", badge: "badge-info" },
     updated: { label: "Updated", badge: "badge-warning" },
-    no_action: { label: "No Action", badge: "badge-ghost opacity-40" }, // ← add this
+    no_action: { label: "No Action", badge: "badge-ghost opacity-40" },
 };
 
 // ─── Main Export Component ─────────────────────────────────────────────────────
@@ -506,10 +547,56 @@ export default function Export({ tableData }) {
         },
     });
 
-    // ── Inventory History: selected items (Set of itemCodes) ─────────────────
+    const [selectedHistoryItems, setSelectedHistoryItems] = useState(new Set());
+
     const [consignedRefDate, setConsignedRefDate] = useState(
         () => new Date().toISOString().split("T")[0],
     );
+
+    const [showWeeklyColumns, setShowWeeklyColumns] = useState(false);
+
+    const [exportSelectedItems, setExportSelectedItems] = useState(new Set());
+    const [exportSelectedSearch, setExportSelectedSearch] = useState("");
+    const [exportSelectedLoading, setExportSelectedLoading] = useState(false);
+    const [exportSelectedSaving, setExportSelectedSaving] = useState(false);
+    const [exportSelectedLastSaved, setExportSelectedLastSaved] =
+        useState(null);
+
+    // Load shared selection from DB on mount
+    useEffect(() => {
+        setExportSelectedLoading(true);
+        axios
+            .get(route("export-selected-items.index"))
+            .then((res) => {
+                setExportSelectedItems(new Set(res.data.items || []));
+            })
+            .catch(() => {})
+            .finally(() => setExportSelectedLoading(false));
+    }, []);
+
+    // Debounced save to DB whenever selection changes
+    useEffect(() => {
+        if (exportSelectedLoading) return;
+        const timeout = setTimeout(() => {
+            setExportSelectedSaving(true);
+            axios
+                .post(route("export-selected-items.store"), {
+                    items: [...exportSelectedItems],
+                })
+                .then(() => setExportSelectedLastSaved(new Date()))
+                .catch(() => {})
+                .finally(() => setExportSelectedSaving(false));
+        }, 800);
+
+        return () => clearTimeout(timeout);
+    }, [exportSelectedItems]);
+
+    const updateExportSelected = (updater) => {
+        setExportSelectedItems((prev) => {
+            const next = updater(prev);
+            return next;
+        });
+    };
 
     const itemsPerPage = 10;
 
@@ -656,10 +743,15 @@ export default function Export({ tableData }) {
     ];
 
     const subTabs = [
-        { id: "inventory", label: "Inventory" },
-        { id: "inventoryHistory", label: "Inventory History" },
-        { id: "issuance", label: "Issuance" },
-        { id: "return", label: "Return" },
+        { id: "inventory", label: "Inventory", onlyFor: null },
+        { id: "inventoryHistory", label: "Inventory History", onlyFor: null },
+        { id: "issuance", label: "Issuance", onlyFor: null },
+        { id: "return", label: "Return", onlyFor: null },
+        {
+            id: "exportSelected",
+            label: "Export Selected",
+            onlyFor: "consigned",
+        },
     ];
 
     const currentSubTab = activeSubTabs[activeMainTab];
@@ -679,10 +771,14 @@ export default function Export({ tableData }) {
     const consignedInventoryHistoryData =
         tableData?.consigned?.inventoryHistory || [];
 
+    // ── Consigned: 4-week issued totals keyed by itemCode ────────────────────
     const { consignedIssuedWeeklyMap, weekLabels } = useMemo(() => {
         const refDate = new Date(consignedRefDate);
         refDate.setHours(23, 59, 59, 999);
 
+        // Build 4 rolling week ranges ending at refDate
+        // W4 = most recent week (days 0-6 before refDate)
+        // W1 = oldest week (days 21-27 before refDate)
         const getRange = (daysAgoStart, daysAgoEnd) => {
             const start = new Date(refDate);
             start.setDate(refDate.getDate() - daysAgoStart);
@@ -694,8 +790,10 @@ export default function Export({ tableData }) {
         };
 
         const weekRanges = [
-            { key: "w1", ...getRange(13, 7) },
-            { key: "w2", ...getRange(6, 0) },
+            { key: "w1", ...getRange(27, 21) },
+            { key: "w2", ...getRange(20, 14) },
+            { key: "w3", ...getRange(13, 7) },
+            { key: "w4", ...getRange(6, 0) },
         ];
 
         const fmt = (d) => {
@@ -713,7 +811,8 @@ export default function Export({ tableData }) {
             if (!item.orderDate || !item.itemCode) return;
             const date = new Date(item.orderDate);
             const qty = Number(item.issuedQuantity) || 0;
-            if (!map[item.itemCode]) map[item.itemCode] = { w1: 0, w2: 0 };
+            if (!map[item.itemCode])
+                map[item.itemCode] = { w1: 0, w2: 0, w3: 0, w4: 0 };
             for (const { key, start, end } of weekRanges) {
                 if (date >= start && date <= end) {
                     map[item.itemCode][key] += qty;
@@ -1576,6 +1675,7 @@ export default function Export({ tableData }) {
             );
             const { data, totalPages, currentPage, totalItems } =
                 getPaginatedData(searchedData, tableKey);
+
             return (
                 <CardWrap>
                     <CardHeader
@@ -1595,14 +1695,15 @@ export default function Export({ tableData }) {
                                     consignedIssuedWeeklyMap[item.itemCode];
                                 const w1 = w?.w1 || 0;
                                 const w2 = w?.w2 || 0;
-                                const total14d = w1 + w2; // ← 14 days only
-                                const aum = parseFloat(
-                                    (total14d / 2).toFixed(2),
-                                );
-                                const recalibMin =
-                                    total14d > 0
-                                        ? Math.ceil((total14d / 2) * 2)
-                                        : item.minimum;
+                                const w3 = w?.w3 || 0;
+                                const w4 = w?.w4 || 0;
+                                const total4w = w1 + w2 + w3 + w4;
+                                const { weeklyUsage, recalibMin } =
+                                    calcConsignedMetrics(
+                                        total4w,
+                                        item.category,
+                                    );
+                                const effectiveMin = recalibMin ?? item.minimum;
 
                                 const expirationDate = item.expiration
                                     ? new Date(item.expiration)
@@ -1618,16 +1719,17 @@ export default function Export({ tableData }) {
                                                 30 * 24 * 60 * 60 * 1000,
                                         );
 
-                                const qty = item.quantity;
-                                const effectiveMin = recalibMin ?? item.minimum;
-                                const remarks =
-                                    effectiveMin == null || qty == null
-                                        ? "—"
-                                        : qty <= effectiveMin
-                                          ? "Critical"
-                                          : qty <= effectiveMin * 1.5
-                                            ? "Low Stock"
-                                            : "Normal";
+                                const qty = item.quantity ?? 0;
+                                const delta =
+                                    effectiveMin != null
+                                        ? qty - effectiveMin
+                                        : "—";
+                                const weeksOfInventory =
+                                    effectiveMin != null && effectiveMin > 0
+                                        ? parseFloat(
+                                              (qty / effectiveMin).toFixed(2),
+                                          )
+                                        : "—";
 
                                 return {
                                     itemCode: item.itemCode,
@@ -1637,13 +1739,20 @@ export default function Export({ tableData }) {
                                     supplier: item.supplier,
                                     [weekLabels[0]]: w1,
                                     [weekLabels[1]]: w2,
-                                    "Total (14d)": total14d,
-                                    AUM: aum,
-                                    minimum: effectiveMin,
-                                    soh: item.quantity,
+                                    [weekLabels[2]]: w3,
+                                    [weekLabels[3]]: w4,
+                                    "Total (4w)": total4w,
+                                    "Weekly Usage": weeklyUsage,
+                                    "Target Wks of Inventory": getBuffer(
+                                        item.category,
+                                    ),
+                                    soh: qty,
+                                    "Delta (SOH - Min)": delta,
+                                    "Weeks of Inventory": weeksOfInventory,
                                     qtyPerBox: item.qtyPerBox,
                                     uom: item.uom,
                                     binLocation: item.binLocation,
+                                    minimum: effectiveMin ?? "—",
                                     price: item.price,
                                     expiration: item.expiration || "No expiry",
                                     expirationStatus: isExpired
@@ -1651,7 +1760,10 @@ export default function Export({ tableData }) {
                                         : isNearExpiration
                                           ? "Near Expiry"
                                           : "OK",
-                                    remarks: remarks,
+                                    remarks: getConsignedRemark(
+                                        qty,
+                                        effectiveMin,
+                                    ),
                                 };
                             });
                             exportToCSV(
@@ -1661,6 +1773,7 @@ export default function Export({ tableData }) {
                         }}
                         exportDisabled={consignedInventoryData.length === 0}
                     />
+
                     {/* ── Reference Date Filter ── */}
                     <div className="flex flex-wrap gap-4 items-end mb-4 p-4 border border-base-content/20 rounded-lg">
                         <div className="form-control">
@@ -1696,11 +1809,19 @@ export default function Export({ tableData }) {
                                     Viewing as of {consignedRefDate}
                                 </span>
                             )}
+                            <button
+                                className={`btn btn-sm ${showWeeklyColumns ? "btn-outline btn-active" : "btn-ghost"}`}
+                                onClick={() => setShowWeeklyColumns((v) => !v)}
+                            >
+                                {showWeeklyColumns ? "Hide" : "Show"} Weekly
+                                Breakdown
+                            </button>
                         </div>
                         <p className="text-xs opacity-50 w-full -mt-2">
-                            Sets the "today" reference for W1/W2 ranges and
-                            recalibrates Minimum and Remarks without saving to
-                            the database.
+                            Sets the "today" reference for W1–W4 ranges (4-week
+                            lookback). Minimum = ceil(Weekly Usage × buffer),
+                            where buffer is 2.0 for "Tray" categories and 1.5
+                            for all others.
                         </p>
                     </div>
 
@@ -1719,19 +1840,41 @@ export default function Export({ tableData }) {
                                     <th>Material Description</th>
                                     <th>Category</th>
                                     <th>Supplier</th>
+                                    {/* 4 weekly columns */}
+                                    {showWeeklyColumns && (
+                                        <>
+                                            <th className="text-center">
+                                                {weekLabels[0]}
+                                            </th>
+                                            <th className="text-center">
+                                                {weekLabels[1]}
+                                            </th>
+                                            <th className="text-center">
+                                                {weekLabels[2]}
+                                            </th>
+                                            <th className="text-center">
+                                                {weekLabels[3]}
+                                            </th>
+                                            <th className="text-center">
+                                                Total (4w)
+                                            </th>
+                                        </>
+                                    )}
                                     <th className="text-center">
-                                        {weekLabels[0]}
+                                        Weekly Usage
                                     </th>
-                                    <th className="text-center">
-                                        {weekLabels[1]}
-                                    </th>
-                                    <th className="text-center">Total (14d)</th>
-                                    <th className="text-center">AUM</th>
                                     <th>SOH</th>
+                                    {/* ── new columns right after SOH ── */}
+                                    <th className="text-center">
+                                        Delta (SOH − Min)
+                                    </th>
+                                    <th className="text-center">
+                                        Weeks of Inventory
+                                    </th>
                                     <th>Qty per Box</th>
                                     <th>UOM</th>
                                     <th>Bin Location</th>
-                                    <th>Minimum</th>
+                                    <th className="text-center">Minimum</th>
                                     <th>Price</th>
                                     <th>Expiration</th>
                                     <th className="text-center">Remarks</th>
@@ -1767,15 +1910,38 @@ export default function Export({ tableData }) {
                                             ];
                                         const w1val = w?.w1 || 0;
                                         const w2val = w?.w2 || 0;
-                                        const total14d = w1val + w2val;
-                                        const aum = (total14d / 2).toFixed(2);
-                                        // Same formula as Artisan command: ceil((total / LOOKBACK_WEEKS) * BUFFER_WEEKS)
-                                        const recalibMin =
-                                            total14d > 0
-                                                ? Math.ceil((total14d / 2) * 2)
-                                                : null;
+                                        const w3val = w?.w3 || 0;
+                                        const w4val = w?.w4 || 0;
+                                        const total4w =
+                                            w1val + w2val + w3val + w4val;
+
+                                        const { weeklyUsage, recalibMin } =
+                                            calcConsignedMetrics(
+                                                total4w,
+                                                item.category,
+                                            );
                                         const effectiveMin =
                                             recalibMin ?? item.minimum;
+
+                                        const qty = item.quantity ?? 0;
+                                        const delta =
+                                            effectiveMin != null
+                                                ? qty - effectiveMin
+                                                : null;
+                                        const weeksOfInventory =
+                                            effectiveMin != null &&
+                                            effectiveMin > 0
+                                                ? parseFloat(
+                                                      (
+                                                          qty / effectiveMin
+                                                      ).toFixed(2),
+                                                  )
+                                                : null;
+
+                                        const remark = getConsignedRemark(
+                                            qty,
+                                            effectiveMin,
+                                        );
 
                                         return (
                                             <tr key={index}>
@@ -1795,46 +1961,110 @@ export default function Export({ tableData }) {
                                                         {item.supplier}
                                                     </span>
                                                 </td>
+                                                {/* W1–W4 */}
+                                                {showWeeklyColumns && (
+                                                    <>
+                                                        {[
+                                                            w1val,
+                                                            w2val,
+                                                            w3val,
+                                                            w4val,
+                                                        ].map((wv, wi) => (
+                                                            <td
+                                                                key={wi}
+                                                                className="text-center"
+                                                            >
+                                                                <span
+                                                                    className={`font-bold ${wv > 0 ? "text-warning" : "opacity-40"}`}
+                                                                >
+                                                                    {wv}
+                                                                </span>
+                                                            </td>
+                                                        ))}
+                                                        {/* Total 4w */}
+                                                        <td className="text-center">
+                                                            <span
+                                                                className={`font-bold ${total4w > 0 ? "text-error" : "opacity-40"}`}
+                                                            >
+                                                                {total4w}
+                                                            </span>
+                                                        </td>
+                                                    </>
+                                                )}
+                                                {/* Weekly Usage */}
                                                 <td className="text-center">
                                                     <span
-                                                        className={`font-bold ${w1val > 0 ? "text-warning" : "opacity-40"}`}
+                                                        className={`font-bold ${weeklyUsage > 0 ? "text-warning" : "opacity-40"}`}
                                                     >
-                                                        {w1val}
+                                                        {weeklyUsage}
                                                     </span>
                                                 </td>
-                                                <td className="text-center">
-                                                    <span
-                                                        className={`font-bold ${w2val > 0 ? "text-warning" : "opacity-40"}`}
-                                                    >
-                                                        {w2val}
-                                                    </span>
-                                                </td>
-                                                <td className="text-center">
-                                                    <span
-                                                        className={`font-bold ${total14d > 0 ? "text-error" : "opacity-40"}`}
-                                                    >
-                                                        {total14d}
-                                                    </span>
-                                                </td>
-                                                <td className="text-center">
-                                                    <span
-                                                        className={`font-bold ${total14d > 0 ? "text-warning" : "opacity-40"}`}
-                                                    >
-                                                        {aum}
-                                                    </span>
-                                                </td>
+                                                {/* SOH */}
                                                 <td>
                                                     <span
-                                                        className={`font-bold ${item.quantity <= effectiveMin ? "text-error" : item.quantity <= effectiveMin * 1.5 ? "text-warning" : ""}`}
+                                                        className={`font-bold ${
+                                                            qty === 0
+                                                                ? "text-error"
+                                                                : qty <=
+                                                                    (effectiveMin ??
+                                                                        0)
+                                                                  ? "text-error"
+                                                                  : qty <=
+                                                                      (effectiveMin ??
+                                                                          0) *
+                                                                          1.5
+                                                                    ? "text-warning"
+                                                                    : ""
+                                                        }`}
                                                     >
-                                                        {item.quantity}
+                                                        {qty}
                                                     </span>
+                                                </td>
+                                                {/* Delta (SOH − Min) */}
+                                                <td className="text-center">
+                                                    {delta !== null ? (
+                                                        <span
+                                                            className={`font-semibold ${delta < 0 ? "text-error" : delta === 0 ? "text-warning" : "text-success"}`}
+                                                        >
+                                                            {delta > 0
+                                                                ? `+${delta}`
+                                                                : delta}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="opacity-40">
+                                                            —
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                {/* Weeks of Inventory */}
+                                                <td className="text-center">
+                                                    {weeksOfInventory !==
+                                                    null ? (
+                                                        <span
+                                                            className={`font-semibold ${
+                                                                weeksOfInventory <
+                                                                1
+                                                                    ? "text-error"
+                                                                    : weeksOfInventory <
+                                                                        2
+                                                                      ? "text-warning"
+                                                                      : ""
+                                                            }`}
+                                                        >
+                                                            {weeksOfInventory}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="opacity-40">
+                                                            —
+                                                        </span>
+                                                    )}
                                                 </td>
                                                 <td>
                                                     {item.qtyPerBox || "N/A"}
                                                 </td>
                                                 <td>{item.uom}</td>
                                                 <td>{item.binLocation}</td>
+                                                {/* Minimum */}
                                                 <td className="text-center">
                                                     {effectiveMin ?? "—"}
                                                 </td>
@@ -1844,6 +2074,7 @@ export default function Export({ tableData }) {
                                                         ? `₱${item.price.toFixed(2)}`
                                                         : item.price || "₱0.00"}
                                                 </td>
+                                                {/* Expiration */}
                                                 <td>
                                                     <span
                                                         className={`font-medium ${isExpired ? "text-error" : isNearExpiration ? "text-warning" : ""}`}
@@ -1862,38 +2093,35 @@ export default function Export({ tableData }) {
                                                         )}
                                                     </span>
                                                 </td>
+                                                {/* Remarks */}
                                                 <td className="text-center">
                                                     {(() => {
-                                                        const qty =
-                                                            item.quantity;
-                                                        if (
-                                                            effectiveMin ==
-                                                                null ||
-                                                            qty == null
-                                                        )
-                                                            return (
-                                                                <span className="opacity-40 text-xs">
-                                                                    —
-                                                                </span>
-                                                            );
-                                                        if (qty <= effectiveMin)
-                                                            return (
-                                                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">
-                                                                    Critical
-                                                                </span>
-                                                            );
-                                                        if (
-                                                            qty <=
-                                                            effectiveMin * 1.5
-                                                        )
-                                                            return (
-                                                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-yellow-100 text-yellow-700 border border-yellow-300 whitespace-nowrap">
-                                                                    Low Stock
-                                                                </span>
-                                                            );
-                                                        return (
-                                                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700 border border-green-300 whitespace-nowrap">
-                                                                Normal
+                                                        const badgeMap = {
+                                                            "No Inventory":
+                                                                "bg-gray-100 text-gray-600 border-gray-300",
+                                                            "Zero Stock":
+                                                                "bg-gray-100 text-gray-700 border-gray-300",
+                                                            Critical:
+                                                                "bg-red-100 text-red-700 border-red-300",
+                                                            "Low Stock":
+                                                                "bg-yellow-100 text-yellow-700 border-yellow-300",
+                                                            Healthy:
+                                                                "bg-green-100 text-green-700 border-green-300",
+                                                            "—": "opacity-40",
+                                                        };
+                                                        const cls =
+                                                            badgeMap[remark] ??
+                                                            "opacity-40";
+                                                        return remark ===
+                                                            "—" ? (
+                                                            <span className="opacity-40 text-xs">
+                                                                —
+                                                            </span>
+                                                        ) : (
+                                                            <span
+                                                                className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border whitespace-nowrap ${cls}`}
+                                                            >
+                                                                {remark}
                                                             </span>
                                                         );
                                                     })()}
@@ -1904,7 +2132,7 @@ export default function Export({ tableData }) {
                                 ) : (
                                     <tr>
                                         <td
-                                            colSpan="17"
+                                            colSpan="20"
                                             className="text-center opacity-50"
                                         >
                                             {searchTerms[tableKey]
@@ -1929,7 +2157,7 @@ export default function Export({ tableData }) {
             );
         }
 
-        // ===== CONSIGNED INVENTORY HISTORY (NEW UI) =====
+        // ===== CONSIGNED INVENTORY HISTORY =====
         if (
             activeMainTab === "consigned" &&
             currentSubTab === "inventoryHistory"
@@ -1943,7 +2171,6 @@ export default function Export({ tableData }) {
             );
             const allItems = consignedInventoryHistoryData;
 
-            // ── Build flat action rows for selected items filtered by date ──────
             const buildActionRows = (items) => {
                 const rows = [];
 
@@ -1951,14 +2178,12 @@ export default function Export({ tableData }) {
                     let snapshots = [...(item.snapshots || [])];
                     if (!snapshots.length) return;
 
-                    // Sort ascending for fill logic
                     const sorted = [...snapshots].sort(
                         (a, b) =>
                             new Date(a.snapshotDate + " " + a.snapshotTime) -
                             new Date(b.snapshotDate + " " + b.snapshotTime),
                     );
 
-                    // Determine date range from current filter
                     let rangeStart = null;
                     let rangeEnd = null;
                     const f = filters;
@@ -1977,13 +2202,12 @@ export default function Export({ tableData }) {
                         const y = parseInt(f.selectedYear);
                         const m = parseInt(f.selectedMonth);
                         rangeStart = new Date(y, m - 1, 1);
-                        rangeEnd = new Date(y, m, 0); // last day of month
+                        rangeEnd = new Date(y, m, 0);
                     } else if (
                         f.filterType === "week" &&
                         f.selectedYear &&
                         f.selectedWeek
                     ) {
-                        // ISO week: find the Monday of that week
                         const jan4 = new Date(parseInt(f.selectedYear), 0, 4);
                         const mondayOfWeek1 = new Date(jan4);
                         mondayOfWeek1.setDate(
@@ -1999,7 +2223,6 @@ export default function Export({ tableData }) {
                     }
 
                     if (!rangeStart || !rangeEnd) {
-                        // No date fill for "all time" — just push real rows
                         sorted.forEach((s) =>
                             rows.push({
                                 user: s.user || "—",
@@ -2015,16 +2238,10 @@ export default function Export({ tableData }) {
                         return;
                     }
 
-                    // Helper: date string to comparable key
                     const toKey = (d) => d.toISOString().split("T")[0];
-
-                    // The earliest date this item has ANY history (its "creation" floor)
                     const itemBirthDate = sorted[0].snapshotDate;
-
-                    // Today's date ceiling — don't show future dates
                     const todayKey = toKey(new Date());
 
-                    // Build every day in range, clamped to [itemBirthDate, today]
                     const allDates = [];
                     const cur = new Date(rangeStart);
                     while (cur <= rangeEnd) {
@@ -2035,7 +2252,6 @@ export default function Export({ tableData }) {
                         cur.setDate(cur.getDate() + 1);
                     }
 
-                    // Group real snapshots by date
                     const snapshotsByDate = {};
                     sorted.forEach((s) => {
                         if (!snapshotsByDate[s.snapshotDate])
@@ -2043,8 +2259,6 @@ export default function Export({ tableData }) {
                         snapshotsByDate[s.snapshotDate].push(s);
                     });
 
-                    // Find the last known qty BEFORE the range starts (carry-in),
-                    // only from dates >= itemBirthDate
                     let carryQty = null;
                     sorted.forEach((s) => {
                         if (
@@ -2055,12 +2269,10 @@ export default function Export({ tableData }) {
                         }
                     });
 
-                    // If rangeStart is on or before birth date, no carry-in applies
                     if (toKey(rangeStart) <= itemBirthDate) carryQty = null;
 
                     allDates.forEach((dateKey) => {
                         if (snapshotsByDate[dateKey]) {
-                            // Real actions on this date
                             snapshotsByDate[dateKey].forEach((s) => {
                                 rows.push({
                                     user: s.user || "—",
@@ -2076,7 +2288,6 @@ export default function Export({ tableData }) {
                                 carryQty = s.qty;
                             });
                         } else {
-                            // No action — only fill if qty is already established
                             if (carryQty !== null) {
                                 rows.push({
                                     user: "—",
@@ -2095,13 +2306,10 @@ export default function Export({ tableData }) {
                 });
 
                 return rows.sort((a, b) => {
-                    // 1st: item code ascending
                     if (a.itemCode < b.itemCode) return -1;
                     if (a.itemCode > b.itemCode) return 1;
-                    // 2nd: date ascending
                     if (a.snapshotDate < b.snapshotDate) return -1;
                     if (a.snapshotDate > b.snapshotDate) return 1;
-                    // 3rd: time ascending (no-action rows go first within the day)
                     const tA =
                         a.snapshotTime === "—" ? "00:00:00" : a.snapshotTime;
                     const tB =
@@ -2110,7 +2318,6 @@ export default function Export({ tableData }) {
                 });
             };
 
-            // Items list (left panel)
             const searchedItems = applySearch(allItems, searchTerms[tableKey]);
             const {
                 data: pagedItems,
@@ -2119,7 +2326,6 @@ export default function Export({ tableData }) {
                 totalItems: itemTotalCount,
             } = getPaginatedData(searchedItems, tableKey);
 
-            // History rows for selected items
             const selectedItems = allItems.filter((i) =>
                 selectedHistoryItems.has(i.itemCode),
             );
@@ -2185,7 +2391,6 @@ export default function Export({ tableData }) {
                 exportToCSV(exportData, "consigned_inventory_history");
             };
 
-            // Selected items preview label
             const selectedCodes = [...selectedHistoryItems];
             const previewLabel =
                 selectedCodes.length === 0
@@ -2197,7 +2402,6 @@ export default function Export({ tableData }) {
 
             return (
                 <CardWrap>
-                    {/* ── Header ── */}
                     <div className="flex justify-between items-center mb-4">
                         <h3 className="text-lg font-bold">{title}</h3>
                         <div className="flex items-center gap-4">
@@ -2236,7 +2440,7 @@ export default function Export({ tableData }) {
                         </div>
                     </div>
 
-                    {/* ── Date Filter ── */}
+                    {/* Date Filter */}
                     <div className="flex flex-wrap gap-4 items-center mb-4 p-4 border border-base-content/20 rounded-lg">
                         <div className="form-control">
                             <label className="label">
@@ -2438,7 +2642,6 @@ export default function Export({ tableData }) {
                         </div>
                     </div>
 
-                    {/* ── Two-panel layout ── */}
                     <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
                         {/* LEFT: Item selector */}
                         <div className="lg:col-span-2 border border-base-content/20 rounded-lg p-3 flex flex-col gap-3">
@@ -2462,7 +2665,6 @@ export default function Export({ tableData }) {
                                     </button>
                                 </div>
                             </div>
-
                             <SearchBar
                                 value={searchTerms[tableKey]}
                                 onChange={(val) =>
@@ -2470,7 +2672,6 @@ export default function Export({ tableData }) {
                                 }
                                 placeholder="Search items..."
                             />
-
                             <div className="overflow-x-auto">
                                 <table className="table table-sm table-zebra [&_th]:border-y [&_th]:border-base-content/20 [&_td]:border-y [&_td]:border-base-content/20">
                                     <thead>
@@ -2540,7 +2741,6 @@ export default function Export({ tableData }) {
                                     </tbody>
                                 </table>
                             </div>
-
                             {itemTotalPages > 1 && (
                                 <Pagination
                                     currentPage={itemCurrentPage}
@@ -2570,7 +2770,6 @@ export default function Export({ tableData }) {
                                     </span>
                                 )}
                             </div>
-
                             <SearchBar
                                 value={searchTerms[histSearchKey] || ""}
                                 onChange={(val) => {
@@ -2585,7 +2784,6 @@ export default function Export({ tableData }) {
                                 }}
                                 placeholder="Search history records..."
                             />
-
                             {!someSelected ? (
                                 <div className="flex flex-col items-center justify-center py-16 opacity-40">
                                     <svg
@@ -3080,6 +3278,657 @@ export default function Export({ tableData }) {
             );
         }
 
+        // ===== CONSIGNED EXPORT SELECTED =====
+        if (
+            activeMainTab === "consigned" &&
+            currentSubTab === "exportSelected"
+        ) {
+            const selectorKey = "consigned_exportSelected_selector";
+            const previewKey = "consigned_exportSelected_preview";
+
+            const selectorFiltered = applySearch(
+                consignedInventoryData,
+                exportSelectedSearch,
+            );
+            const {
+                data: selectorPaged,
+                totalPages: selectorTotalPages,
+                currentPage: selectorCurrentPage,
+                totalItems: selectorTotal,
+            } = getPaginatedData(selectorFiltered, selectorKey);
+
+            const allOnSelectorPageSelected =
+                selectorPaged.length > 0 &&
+                selectorPaged.every((i) => exportSelectedItems.has(i.itemCode));
+
+            const toggleExportItem = (itemCode) => {
+                updateExportSelected((prev) => {
+                    const next = new Set(prev);
+                    next.has(itemCode)
+                        ? next.delete(itemCode)
+                        : next.add(itemCode);
+                    return next;
+                });
+            };
+
+            const toggleSelectorPage = () => {
+                updateExportSelected((prev) => {
+                    const next = new Set(prev);
+                    if (allOnSelectorPageSelected) {
+                        selectorPaged.forEach((i) => next.delete(i.itemCode));
+                    } else {
+                        selectorPaged.forEach((i) => next.add(i.itemCode));
+                    }
+                    return next;
+                });
+            };
+
+            const selectAllFiltered = () => {
+                updateExportSelected((prev) => {
+                    const next = new Set(prev);
+                    selectorFiltered.forEach((i) => next.add(i.itemCode));
+                    return next;
+                });
+            };
+
+            const clearAllSelected = () => {
+                updateExportSelected(() => new Set());
+                setCurrentPages((p) => ({ ...p, [previewKey]: 1 }));
+            };
+
+            const selectedPreviewData = consignedInventoryData
+                .filter((item) => exportSelectedItems.has(item.itemCode))
+                .map((item) => {
+                    const today = new Date(consignedRefDate);
+                    today.setHours(23, 59, 59, 999);
+
+                    const w = consignedIssuedWeeklyMap[item.itemCode];
+                    const w1 = w?.w1 || 0;
+                    const w2 = w?.w2 || 0;
+                    const w3 = w?.w3 || 0;
+                    const w4 = w?.w4 || 0;
+                    const total4w = w1 + w2 + w3 + w4;
+
+                    const { weeklyUsage, recalibMin } = calcConsignedMetrics(
+                        total4w,
+                        item.category,
+                    );
+                    const effectiveMin = recalibMin ?? item.minimum;
+                    const qty = item.quantity ?? 0;
+                    const delta =
+                        effectiveMin != null ? qty - effectiveMin : null;
+                    const weeksOfInv =
+                        effectiveMin != null && effectiveMin > 0
+                            ? parseFloat((qty / effectiveMin).toFixed(2))
+                            : null;
+
+                    const expirationDate = item.expiration
+                        ? new Date(item.expiration)
+                        : null;
+                    const isExpired = expirationDate && expirationDate < today;
+                    const isNearExpiry =
+                        expirationDate &&
+                        expirationDate >= today &&
+                        expirationDate <=
+                            new Date(
+                                today.getTime() + 30 * 24 * 60 * 60 * 1000,
+                            );
+
+                    return {
+                        ...item,
+                        w1,
+                        w2,
+                        w3,
+                        w4,
+                        total4w,
+                        weeklyUsage,
+                        effectiveMin,
+                        qty,
+                        delta,
+                        weeksOfInv,
+                        isExpired,
+                        isNearExpiry,
+                        remark: getConsignedRemark(qty, effectiveMin),
+                    };
+                });
+
+            const {
+                data: previewPaged,
+                totalPages: previewTotalPages,
+                currentPage: previewCurrentPage,
+                totalItems: previewTotal,
+            } = getPaginatedData(selectedPreviewData, previewKey);
+
+            const handleExportSelected = () => {
+                const rows = selectedPreviewData.map((item) => ({
+                    itemCode: item.itemCode,
+                    materialDescription: item.materialDescription,
+                    category: item.category,
+                    supplier: item.supplier,
+                    [weekLabels[0]]: item.w1,
+                    [weekLabels[1]]: item.w2,
+                    [weekLabels[2]]: item.w3,
+                    [weekLabels[3]]: item.w4,
+                    "Total (4w)": item.total4w,
+                    "Weekly Usage": item.weeklyUsage,
+                    "Target Wks of Inventory": getBuffer(item.category),
+                    soh: item.qty,
+                    "Delta (SOH - Min)": item.delta ?? "—",
+                    "Weeks of Inventory": item.weeksOfInv ?? "—",
+                    qtyPerBox: item.qtyPerBox,
+                    uom: item.uom,
+                    binLocation: item.binLocation,
+                    minimum: item.effectiveMin ?? "—",
+                    price: item.price,
+                    expiration: item.expiration || "No expiry",
+                    expirationStatus: item.isExpired
+                        ? "Expired"
+                        : item.isNearExpiry
+                          ? "Near Expiry"
+                          : "OK",
+                    remarks: item.remark,
+                }));
+                exportToCSV(
+                    rows,
+                    `consigned_export_selected_${consignedRefDate}`,
+                );
+            };
+
+            return (
+                <CardWrap>
+                    {/* ── Header ── */}
+                    <div className="flex justify-between items-center mb-4">
+                        <div>
+                            <h3 className="text-lg font-bold">
+                                Consigned — Export Selected
+                            </h3>
+                            <p className="text-xs opacity-50 mt-0.5">
+                                Select items to include in your export. Your
+                                selection is shared across all users and saved
+                                automatically.
+                            </p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            {exportSelectedItems.size > 0 && (
+                                <span className="text-sm opacity-60">
+                                    {exportSelectedItems.size} item
+                                    {exportSelectedItems.size !== 1
+                                        ? "s"
+                                        : ""}{" "}
+                                    selected
+                                </span>
+                            )}
+                            <button
+                                onClick={handleExportSelected}
+                                className="btn btn-sm btn-outline"
+                                disabled={exportSelectedItems.size === 0}
+                            >
+                                <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    className="h-4 w-4 mr-1"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                    />
+                                </svg>
+                                Export CSV
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* ── Reference Date ── */}
+                    <div className="flex flex-wrap gap-4 items-end mb-4 p-4 border border-base-content/20 rounded-lg">
+                        <div className="form-control">
+                            <label className="label">
+                                <span className="label-text font-semibold">
+                                    Reference Date
+                                </span>
+                            </label>
+                            <input
+                                type="date"
+                                className="input input-bordered input-sm w-44"
+                                value={consignedRefDate}
+                                max={new Date().toISOString().split("T")[0]}
+                                onChange={(e) =>
+                                    setConsignedRefDate(e.target.value)
+                                }
+                            />
+                        </div>
+                        <div className="flex items-end gap-2">
+                            <button
+                                className="btn btn-sm btn-ghost"
+                                onClick={() =>
+                                    setConsignedRefDate(
+                                        new Date().toISOString().split("T")[0],
+                                    )
+                                }
+                            >
+                                Reset to Today
+                            </button>
+                            {consignedRefDate !==
+                                new Date().toISOString().split("T")[0] && (
+                                <span className="badge badge-warning badge-outline text-xs">
+                                    Viewing as of {consignedRefDate}
+                                </span>
+                            )}
+                        </div>
+                        <p className="text-xs opacity-50 w-full -mt-2">
+                            Sets the W1–W4 reference for weekly usage
+                            calculations. Shared with the Inventory tab.
+                        </p>
+                    </div>
+
+                    {/* ── Saved-selection banner ── */}
+                    <div className="flex items-center gap-2 mb-4 p-3 rounded-lg border border-info/30 bg-info/5 text-sm">
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            className="h-4 w-4 shrink-0 text-info"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20A10 10 0 0012 2z"
+                            />
+                        </svg>
+                        {exportSelectedLoading ? (
+                            <span className="opacity-50">
+                                Loading saved selection...
+                            </span>
+                        ) : (
+                            <span>
+                                <strong>{exportSelectedItems.size}</strong> item
+                                {exportSelectedItems.size !== 1 ? "s" : ""}{" "}
+                                selected — shared across all users.
+                            </span>
+                        )}
+                        <span className="ml-auto flex items-center gap-2">
+                            {exportSelectedSaving && (
+                                <span className="text-xs opacity-50 flex items-center gap-1">
+                                    <span className="loading loading-spinner loading-xs"></span>
+                                    Saving...
+                                </span>
+                            )}
+                            {!exportSelectedSaving &&
+                                exportSelectedLastSaved && (
+                                    <span className="text-xs opacity-40">
+                                        Saved{" "}
+                                        {exportSelectedLastSaved.toLocaleTimeString()}
+                                    </span>
+                                )}
+                            {exportSelectedItems.size > 0 && (
+                                <button
+                                    onClick={clearAllSelected}
+                                    className="btn btn-xs btn-ghost text-error"
+                                >
+                                    Clear all
+                                </button>
+                            )}
+                        </span>
+                    </div>
+
+                    {/* ── Two-panel layout ── */}
+                    <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+                        {/* LEFT: Item selector */}
+                        <div className="lg:col-span-2 border border-base-content/20 rounded-lg p-3 flex flex-col gap-3">
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm font-semibold opacity-70 uppercase tracking-wide">
+                                    All Items
+                                </span>
+                                <div className="flex gap-1">
+                                    <button
+                                        onClick={selectAllFiltered}
+                                        className="btn btn-xs btn-ghost"
+                                    >
+                                        Select All
+                                    </button>
+                                    <button
+                                        onClick={clearAllSelected}
+                                        className="btn btn-xs btn-ghost text-error"
+                                        disabled={
+                                            exportSelectedItems.size === 0
+                                        }
+                                    >
+                                        Clear
+                                    </button>
+                                </div>
+                            </div>
+
+                            <SearchBar
+                                value={exportSelectedSearch}
+                                onChange={(val) => {
+                                    setExportSelectedSearch(val);
+                                    setCurrentPages((p) => ({
+                                        ...p,
+                                        [selectorKey]: 1,
+                                    }));
+                                }}
+                                placeholder="Search items..."
+                            />
+
+                            <div className="overflow-x-auto">
+                                <table className="table table-sm table-zebra [&_th]:border-y [&_th]:border-base-content/20 [&_td]:border-y [&_td]:border-base-content/20">
+                                    <thead>
+                                        <tr>
+                                            <th className="w-8">
+                                                <input
+                                                    type="checkbox"
+                                                    className="checkbox checkbox-sm"
+                                                    checked={
+                                                        allOnSelectorPageSelected
+                                                    }
+                                                    onChange={
+                                                        toggleSelectorPage
+                                                    }
+                                                />
+                                            </th>
+                                            <th>Item Code</th>
+                                            <th>Description</th>
+                                            <th className="text-center">SOH</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {selectorPaged.length > 0 ? (
+                                            selectorPaged.map((item, idx) => {
+                                                const isSelected =
+                                                    exportSelectedItems.has(
+                                                        item.itemCode,
+                                                    );
+                                                return (
+                                                    <tr
+                                                        key={idx}
+                                                        className={`cursor-pointer hover:bg-base-200 ${isSelected ? "bg-primary/10" : ""}`}
+                                                        onClick={() =>
+                                                            toggleExportItem(
+                                                                item.itemCode,
+                                                            )
+                                                        }
+                                                    >
+                                                        <td
+                                                            onClick={(e) =>
+                                                                e.stopPropagation()
+                                                            }
+                                                        >
+                                                            <input
+                                                                type="checkbox"
+                                                                className="checkbox checkbox-sm checkbox-primary"
+                                                                checked={
+                                                                    isSelected
+                                                                }
+                                                                onChange={() =>
+                                                                    toggleExportItem(
+                                                                        item.itemCode,
+                                                                    )
+                                                                }
+                                                            />
+                                                        </td>
+                                                        <td className="font-semibold text-xs">
+                                                            {item.itemCode}
+                                                        </td>
+                                                        <td className="text-xs">
+                                                            {
+                                                                item.materialDescription
+                                                            }
+                                                        </td>
+                                                        <td className="text-xs text-center font-bold">
+                                                            {item.quantity ?? 0}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
+                                        ) : (
+                                            <tr>
+                                                <td
+                                                    colSpan="4"
+                                                    className="text-center opacity-50 text-xs py-4"
+                                                >
+                                                    No items found
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {selectorTotalPages > 1 && (
+                                <Pagination
+                                    currentPage={selectorCurrentPage}
+                                    totalPages={selectorTotalPages}
+                                    onPageChange={(p) =>
+                                        handlePageChange(selectorKey, p)
+                                    }
+                                />
+                            )}
+                            <div className="text-xs opacity-50 text-center">
+                                {selectorTotal} items total ·{" "}
+                                {exportSelectedItems.size} selected
+                            </div>
+                        </div>
+
+                        {/* RIGHT: Preview of selected items */}
+                        <div className="lg:col-span-3 border border-base-content/20 rounded-lg p-3 flex flex-col gap-3">
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm font-semibold opacity-70 uppercase tracking-wide">
+                                    Preview
+                                </span>
+                                {previewTotal > 0 && (
+                                    <span className="text-xs opacity-50">
+                                        {previewTotal} item
+                                        {previewTotal !== 1 ? "s" : ""} · will
+                                        be exported
+                                    </span>
+                                )}
+                            </div>
+
+                            {exportSelectedItems.size === 0 ? (
+                                <div className="flex flex-col items-center justify-center py-16 opacity-40">
+                                    <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        className="h-10 w-10 mb-3"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth={1.5}
+                                            d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                        />
+                                    </svg>
+                                    <p className="text-sm">
+                                        Select items on the left to preview and
+                                        export
+                                    </p>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="overflow-x-auto">
+                                        <table className="table table-sm table-zebra [&_th]:border-y [&_th]:border-base-content/20 [&_td]:border-y [&_td]:border-base-content/20">
+                                            <thead>
+                                                <tr>
+                                                    <th></th>
+                                                    <th>Item Code</th>
+                                                    <th>Description</th>
+                                                    <th>Category</th>
+                                                    <th className="text-center">
+                                                        Weekly Usage
+                                                    </th>
+                                                    <th className="text-center">
+                                                        SOH
+                                                    </th>
+                                                    <th className="text-center">
+                                                        Min
+                                                    </th>
+                                                    <th className="text-center">
+                                                        Delta
+                                                    </th>
+                                                    <th className="text-center">
+                                                        Wks Inv
+                                                    </th>
+                                                    <th className="text-center">
+                                                        Remarks
+                                                    </th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {previewPaged.map(
+                                                    (item, idx) => {
+                                                        const badgeMap = {
+                                                            "No Inventory":
+                                                                "bg-gray-100 text-gray-600 border-gray-300",
+                                                            "Zero Stock":
+                                                                "bg-gray-100 text-gray-700 border-gray-300",
+                                                            Critical:
+                                                                "bg-red-100 text-red-700 border-red-300",
+                                                            "Low Stock":
+                                                                "bg-yellow-100 text-yellow-700 border-yellow-300",
+                                                            Healthy:
+                                                                "bg-green-100 text-green-700 border-green-300",
+                                                        };
+                                                        return (
+                                                            <tr key={idx}>
+                                                                <td>
+                                                                    <button
+                                                                        className="btn btn-xs btn-ghost text-error opacity-60 hover:opacity-100"
+                                                                        onClick={() =>
+                                                                            toggleExportItem(
+                                                                                item.itemCode,
+                                                                            )
+                                                                        }
+                                                                        title="Remove from selection"
+                                                                    >
+                                                                        ✕
+                                                                    </button>
+                                                                </td>
+                                                                <td className="font-semibold text-xs">
+                                                                    {
+                                                                        item.itemCode
+                                                                    }
+                                                                </td>
+                                                                <td className="text-xs">
+                                                                    {
+                                                                        item.materialDescription
+                                                                    }
+                                                                </td>
+                                                                <td>
+                                                                    <span className="badge badge-outline badge-xs">
+                                                                        {
+                                                                            item.category
+                                                                        }
+                                                                    </span>
+                                                                </td>
+                                                                <td className="text-center text-xs">
+                                                                    <span
+                                                                        className={`font-bold ${item.weeklyUsage > 0 ? "text-warning" : "opacity-40"}`}
+                                                                    >
+                                                                        {
+                                                                            item.weeklyUsage
+                                                                        }
+                                                                    </span>
+                                                                </td>
+                                                                <td className="text-center text-xs">
+                                                                    <span
+                                                                        className={`font-bold ${
+                                                                            item.qty ===
+                                                                            0
+                                                                                ? "text-error"
+                                                                                : item.qty <=
+                                                                                    (item.effectiveMin ??
+                                                                                        0)
+                                                                                  ? "text-error"
+                                                                                  : item.qty <=
+                                                                                      (item.effectiveMin ??
+                                                                                          0) *
+                                                                                          1.5
+                                                                                    ? "text-warning"
+                                                                                    : ""
+                                                                        }`}
+                                                                    >
+                                                                        {
+                                                                            item.qty
+                                                                        }
+                                                                    </span>
+                                                                </td>
+                                                                <td className="text-center text-xs">
+                                                                    {item.effectiveMin ??
+                                                                        "—"}
+                                                                </td>
+                                                                <td className="text-center text-xs">
+                                                                    {item.delta !==
+                                                                    null ? (
+                                                                        <span
+                                                                            className={`font-semibold ${item.delta < 0 ? "text-error" : item.delta === 0 ? "text-warning" : "text-success"}`}
+                                                                        >
+                                                                            {item.delta >
+                                                                            0
+                                                                                ? `+${item.delta}`
+                                                                                : item.delta}
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="opacity-40">
+                                                                            —
+                                                                        </span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="text-center text-xs">
+                                                                    {item.weeksOfInv !==
+                                                                    null ? (
+                                                                        <span
+                                                                            className={`font-semibold ${item.weeksOfInv < 1 ? "text-error" : item.weeksOfInv < 2 ? "text-warning" : ""}`}
+                                                                        >
+                                                                            {
+                                                                                item.weeksOfInv
+                                                                            }
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="opacity-40">
+                                                                            —
+                                                                        </span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="text-center">
+                                                                    <span
+                                                                        className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border whitespace-nowrap ${badgeMap[item.remark] ?? "opacity-40"}`}
+                                                                    >
+                                                                        {
+                                                                            item.remark
+                                                                        }
+                                                                    </span>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    },
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    {previewTotalPages > 1 && (
+                                        <Pagination
+                                            currentPage={previewCurrentPage}
+                                            totalPages={previewTotalPages}
+                                            onPageChange={(p) =>
+                                                handlePageChange(previewKey, p)
+                                            }
+                                        />
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </CardWrap>
+            );
+        }
+
         return (
             <div className="border border-base-content/20 rounded-lg p-6">
                 <h3 className="text-lg font-bold">
@@ -3121,16 +3970,21 @@ export default function Export({ tableData }) {
 
                 {/* Sub Tabs */}
                 <div role="tablist" className="tabs tabs-lifted">
-                    {subTabs.map((tab) => (
-                        <button
-                            key={tab.id}
-                            role="tab"
-                            onClick={() => handleSubTabChange(tab.id)}
-                            className={`tab ${activeSubTabs[activeMainTab] === tab.id ? "tab-active [--tab-bg:hsl(var(--b1))] [--tab-border-color:hsl(var(--b3))]" : ""}`}
-                        >
-                            {tab.label}
-                        </button>
-                    ))}
+                    {subTabs
+                        .filter(
+                            (tab) =>
+                                !tab.onlyFor || tab.onlyFor === activeMainTab,
+                        )
+                        .map((tab) => (
+                            <button
+                                key={tab.id}
+                                role="tab"
+                                onClick={() => handleSubTabChange(tab.id)}
+                                className={`tab ${activeSubTabs[activeMainTab] === tab.id ? "tab-active [--tab-bg:hsl(var(--b1))] [--tab-border-color:hsl(var(--b3))]" : ""}`}
+                            >
+                                {tab.label}
+                            </button>
+                        ))}
                 </div>
 
                 {/* Content */}

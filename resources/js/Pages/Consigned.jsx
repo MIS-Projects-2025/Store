@@ -1166,16 +1166,20 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
                     c.item_code === currentSelection.itemCode &&
                     c.supplier === currentSelection.supplier,
             );
-            if (
-                !selectedCombo ||
-                selectedCombo.minimum == null ||
-                selectedCombo.qty == null
-            ) {
+            if (!selectedCombo || selectedCombo.qty == null) {
                 map[item.id] = null;
                 return;
             }
+            if (
+                (!selectedCombo.qty || selectedCombo.qty === 0) &&
+                (!selectedCombo.minimum || selectedCombo.minimum === 0)
+            ) {
+                map[item.id] = "no_inventory";
+                return;
+            }
             if (!selectedCombo.minimum || selectedCombo.minimum === 0) {
-                map[item.id] = null;
+                map[item.id] =
+                    selectedCombo.qty > 0 ? "healthy" : "no_inventory";
                 return;
             }
             if (selectedCombo.qty <= selectedCombo.minimum) {
@@ -1186,7 +1190,7 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
                 map[item.id] = "low";
                 return;
             }
-            map[item.id] = null;
+            map[item.id] = "healthy";
         });
         return map;
     }, [consignedItems, rowSelections]);
@@ -1494,6 +1498,19 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
                                                                     <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-yellow-100 text-yellow-700 border border-yellow-300 whitespace-nowrap">
                                                                         Low
                                                                         Stock
+                                                                    </span>
+                                                                )}
+                                                                {stockStatus ===
+                                                                    "healthy" && (
+                                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700 border border-green-300 whitespace-nowrap">
+                                                                        Healthy
+                                                                    </span>
+                                                                )}
+                                                                {stockStatus ===
+                                                                    "no_inventory" && (
+                                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-600 border border-gray-300 whitespace-nowrap">
+                                                                        No
+                                                                        Inventory
                                                                     </span>
                                                                 )}
                                                             </div>
@@ -2054,18 +2071,42 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
                                                                             </span>
                                                                             {(() => {
                                                                                 if (
-                                                                                    combo.minimum ==
-                                                                                        null ||
                                                                                     combo.qty ==
-                                                                                        null
+                                                                                    null
                                                                                 )
                                                                                     return null;
+                                                                                if (
+                                                                                    (!combo.qty ||
+                                                                                        combo.qty ===
+                                                                                            0) &&
+                                                                                    (!combo.minimum ||
+                                                                                        combo.minimum ===
+                                                                                            0)
+                                                                                ) {
+                                                                                    return (
+                                                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-600 border border-gray-300 whitespace-nowrap">
+                                                                                            No
+                                                                                            Inventory
+                                                                                        </span>
+                                                                                    );
+                                                                                }
                                                                                 if (
                                                                                     !combo.minimum ||
                                                                                     combo.minimum ===
                                                                                         0
-                                                                                )
-                                                                                    return null;
+                                                                                ) {
+                                                                                    return combo.qty >
+                                                                                        0 ? (
+                                                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700 border border-green-300 whitespace-nowrap">
+                                                                                            Healthy
+                                                                                        </span>
+                                                                                    ) : (
+                                                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-600 border border-gray-300 whitespace-nowrap">
+                                                                                            No
+                                                                                            Inventory
+                                                                                        </span>
+                                                                                    );
+                                                                                }
                                                                                 if (
                                                                                     combo.qty <=
                                                                                     combo.minimum
@@ -2086,7 +2127,11 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
                                                                                             Stock
                                                                                         </span>
                                                                                     );
-                                                                                return null;
+                                                                                return (
+                                                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700 border border-green-300 whitespace-nowrap">
+                                                                                        Healthy
+                                                                                    </span>
+                                                                                );
                                                                             })()}
                                                                         </div>
                                                                     )}

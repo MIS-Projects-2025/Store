@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\ConsignedDetail;
 use App\Models\ConsignedDetailHistory;
+use App\Models\Consigned;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
@@ -16,8 +17,9 @@ class UpdateConsignedMinimum extends Command
     protected $description = 'Recalculate the minimum for every consigned detail '
                            . 'based on total issued qty over the lookback weeks ÷ weeks × buffer weeks';
 
-    private const LOOKBACK_WEEKS = 2;  // ← change this to look back further
-    private const BUFFER_WEEKS   = 2;  // ← change this for more/less buffer
+    private const LOOKBACK_WEEKS    = 4;   // look back 4 weeks of history
+    private const BUFFER_TRAY       = 2.0; // items whose category contains "Tray"
+    private const BUFFER_DEFAULT    = 1.5; // everything else
 
     public function handle(): int
     {
@@ -42,10 +44,11 @@ class UpdateConsignedMinimum extends Command
             return self::SUCCESS;
         }
 
+        // Accumulate issued qty per detail id
         $issuedTotals = [];
 
         foreach ($issuedHistories as $history) {
-            $detailId  = $history->consigned_detail_id;
+            $detailId = $history->consigned_detail_id;
             if (!$detailId) continue;
 
             $oldValues = is_string($history->old_values)
@@ -61,14 +64,21 @@ class UpdateConsignedMinimum extends Command
             $issuedTotals[$detailId] += $issuedQty;
         }
 
-        $updatedCount = 0;
-        $skippedCount = 0;
-        $rows         = [];
-
+        // Load all relevant details WITH their parent category
         $details = ConsignedDetail::on('newstore')
             ->whereIn('id', array_keys($issuedTotals))
             ->get(['id', 'commonality', 'item_code', 'supplier', 'minimum'])
             ->keyBy('id');
+
+        // Build a commonality → category map from the Consigned (main) table
+        $commonalities = $details->pluck('commonality')->unique()->values()->toArray();
+        $categoryMap   = Consigned::on('newstore')
+            ->whereIn('commonality', $commonalities)
+            ->pluck('category', 'commonality'); // [ commonality => category ]
+
+        $updatedCount = 0;
+        $skippedCount = 0;
+        $rows         = [];
 
         DB::connection('newstore')->beginTransaction();
 
@@ -81,15 +91,27 @@ class UpdateConsignedMinimum extends Command
                     continue;
                 }
 
-                // ← Per week formula
-                $newMinimum = (int) ceil(($totalIssued / self::LOOKBACK_WEEKS) * self::BUFFER_WEEKS);
+                // Determine buffer based on category
+                $category = $categoryMap->get($detail->commonality, '');
+                $buffer   = (stripos($category, 'Tray') !== false)
+                    ? self::BUFFER_TRAY
+                    : self::BUFFER_DEFAULT;
+
+                // Weekly usage = total / lookback weeks
+                $weeklyUsage = $totalIssued / self::LOOKBACK_WEEKS;
+
+                // New minimum = ceil(weeklyUsage × buffer)
+                $newMinimum = (int) ceil($weeklyUsage * $buffer);
                 $oldMinimum = (int) $detail->minimum;
 
                 $rows[] = [
                     $detail->item_code,
                     $detail->supplier,
                     $detail->commonality,
+                    $category,
                     $totalIssued,
+                    round($weeklyUsage, 2),
+                    $buffer,
                     $oldMinimum,
                     $newMinimum,
                     $oldMinimum === $newMinimum ? '—' : '✓',
@@ -119,7 +141,7 @@ class UpdateConsignedMinimum extends Command
         }
 
         $this->table(
-            ['Item Code', 'Supplier', 'Commonality', 'Total Issued (weeks)', 'Old Min', 'New Min', 'Changed'],
+            ['Item Code', 'Supplier', 'Commonality', 'Category', 'Total Issued (4w)', 'Weekly Usage', 'Buffer', 'Old Min', 'New Min', 'Changed'],
             $rows
         );
 
