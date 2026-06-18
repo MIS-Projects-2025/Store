@@ -1,4 +1,4 @@
-import Dropdown from "@/Components/sidebar/Dropdown";
+import Dropdown from "@/Components/sidebar/DropDown";
 import SidebarLink from "@/Components/sidebar/SidebarLink";
 import { usePage, router } from "@inertiajs/react";
 import { useState, useEffect } from "react";

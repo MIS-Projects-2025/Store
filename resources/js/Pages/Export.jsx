@@ -136,13 +136,12 @@ const calcConsignedMetrics = (totalIssued, category) => {
  * Zero Stock → Critical → Low Stock → Healthy
  */
 const getConsignedRemark = (qty, effectiveMin) => {
-    if (qty === null || qty === undefined) return "No Inventory";
+    if (qty === null || qty === undefined) return "Zero Stock";
     if ((!qty || qty === 0) && (!effectiveMin || effectiveMin === 0))
-        return "No Inventory";
+        return "Zero Stock";
     if (qty === 0 || qty === null) return "Zero Stock";
     if (!effectiveMin || effectiveMin === 0) return "Healthy";
     if (qty <= effectiveMin) return "Critical";
-    if (qty <= effectiveMin * 1.5) return "Low Stock";
     return "Healthy";
 };
 
@@ -2004,17 +2003,10 @@ export default function Export({ tableData }) {
                                                     <span
                                                         className={`font-bold ${
                                                             qty === 0
-                                                                ? "text-error"
-                                                                : qty <=
-                                                                    (effectiveMin ??
-                                                                        0)
-                                                                  ? "text-error"
-                                                                  : qty <=
-                                                                      (effectiveMin ??
-                                                                          0) *
-                                                                          1.5
-                                                                    ? "text-warning"
-                                                                    : ""
+    ? "text-error"
+    : qty <= (effectiveMin ?? 0)
+      ? "text-error"
+      : ""
                                                         }`}
                                                     >
                                                         {qty}
@@ -2097,18 +2089,10 @@ export default function Export({ tableData }) {
                                                 <td className="text-center">
                                                     {(() => {
                                                         const badgeMap = {
-                                                            "No Inventory":
-                                                                "bg-gray-100 text-gray-600 border-gray-300",
-                                                            "Zero Stock":
-                                                                "bg-gray-100 text-gray-700 border-gray-300",
-                                                            Critical:
-                                                                "bg-red-100 text-red-700 border-red-300",
-                                                            "Low Stock":
-                                                                "bg-yellow-100 text-yellow-700 border-yellow-300",
-                                                            Healthy:
-                                                                "bg-green-100 text-green-700 border-green-300",
-                                                            "—": "opacity-40",
-                                                        };
+    "Zero Stock": "bg-red-100 text-red-700 border-red-300",
+    Critical:     "bg-red-100 text-red-700 border-red-300",
+    Healthy:      "bg-green-100 text-green-700 border-green-300",
+};
                                                         const cls =
                                                             badgeMap[remark] ??
                                                             "opacity-40";
@@ -3784,10 +3768,8 @@ export default function Export({ tableData }) {
                                                 {previewPaged.map(
                                                     (item, idx) => {
                                                         const badgeMap = {
-                                                            "No Inventory":
-                                                                "bg-gray-100 text-gray-600 border-gray-300",
-                                                            "Zero Stock":
-                                                                "bg-gray-100 text-gray-700 border-gray-300",
+                                                            "No Inventory": "bg-red-100 text-red-700 border-red-300",
+                                                            "Zero Stock":   "bg-red-100 text-red-700 border-red-300",
                                                             Critical:
                                                                 "bg-red-100 text-red-700 border-red-300",
                                                             "Low Stock":

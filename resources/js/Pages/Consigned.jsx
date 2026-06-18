@@ -1182,12 +1182,12 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
                     selectedCombo.qty > 0 ? "healthy" : "no_inventory";
                 return;
             }
-            if (selectedCombo.qty <= selectedCombo.minimum) {
-                map[item.id] = "critical";
+            if (selectedCombo.qty === 0 || selectedCombo.qty === null) {
+                map[item.id] = "zero_stock";
                 return;
             }
-            if (selectedCombo.qty <= selectedCombo.minimum * 1.5) {
-                map[item.id] = "low";
+            if (selectedCombo.qty <= selectedCombo.minimum) {
+                map[item.id] = "critical";
                 return;
             }
             map[item.id] = "healthy";
@@ -1487,30 +1487,24 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
                                                                     {currentSelection.description ||
                                                                         "N/A"}
                                                                 </div>
-                                                                {stockStatus ===
-                                                                    "critical" && (
+                                                                {stockStatus === "critical" && (
                                                                     <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">
                                                                         Critical
                                                                     </span>
                                                                 )}
-                                                                {stockStatus ===
-                                                                    "low" && (
-                                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-yellow-100 text-yellow-700 border border-yellow-300 whitespace-nowrap">
-                                                                        Low
-                                                                        Stock
+                                                                {stockStatus === "zero_stock" && (
+                                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">
+                                                                        Zero Stock
                                                                     </span>
                                                                 )}
-                                                                {stockStatus ===
-                                                                    "healthy" && (
+                                                                {stockStatus === "healthy" && (
                                                                     <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700 border border-green-300 whitespace-nowrap">
                                                                         Healthy
                                                                     </span>
                                                                 )}
-                                                                {stockStatus ===
-                                                                    "no_inventory" && (
-                                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-600 border border-gray-300 whitespace-nowrap">
-                                                                        No
-                                                                        Inventory
+                                                                {stockStatus === "no_inventory" && (
+                                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">
+                                                                        Zero Stock
                                                                     </span>
                                                                 )}
                                                             </div>
@@ -2070,69 +2064,47 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
                                                                                     "N/A"}
                                                                             </span>
                                                                             {(() => {
-                                                                                if (
-                                                                                    combo.qty ==
-                                                                                    null
-                                                                                )
-                                                                                    return null;
-                                                                                if (
-                                                                                    (!combo.qty ||
-                                                                                        combo.qty ===
-                                                                                            0) &&
-                                                                                    (!combo.minimum ||
-                                                                                        combo.minimum ===
-                                                                                            0)
-                                                                                ) {
-                                                                                    return (
-                                                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-600 border border-gray-300 whitespace-nowrap">
-                                                                                            No
-                                                                                            Inventory
-                                                                                        </span>
-                                                                                    );
-                                                                                }
-                                                                                if (
-                                                                                    !combo.minimum ||
-                                                                                    combo.minimum ===
-                                                                                        0
-                                                                                ) {
-                                                                                    return combo.qty >
-                                                                                        0 ? (
-                                                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700 border border-green-300 whitespace-nowrap">
-                                                                                            Healthy
-                                                                                        </span>
-                                                                                    ) : (
-                                                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-600 border border-gray-300 whitespace-nowrap">
-                                                                                            No
-                                                                                            Inventory
-                                                                                        </span>
-                                                                                    );
-                                                                                }
-                                                                                if (
-                                                                                    combo.qty <=
-                                                                                    combo.minimum
-                                                                                )
-                                                                                    return (
-                                                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">
-                                                                                            Critical
-                                                                                        </span>
-                                                                                    );
-                                                                                if (
-                                                                                    combo.qty <=
-                                                                                    combo.minimum *
-                                                                                        1.5
-                                                                                )
-                                                                                    return (
-                                                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-yellow-100 text-yellow-700 border border-yellow-300 whitespace-nowrap">
-                                                                                            Low
-                                                                                            Stock
-                                                                                        </span>
-                                                                                    );
-                                                                                return (
-                                                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700 border border-green-300 whitespace-nowrap">
-                                                                                        Healthy
-                                                                                    </span>
-                                                                                );
-                                                                            })()}
+    if (combo.qty == null) return null;
+    if (
+        (!combo.qty || combo.qty === 0) &&
+        (!combo.minimum || combo.minimum === 0)
+    ) {
+        return (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">
+                Zero Stock
+            </span>
+        );
+    }
+    if (!combo.minimum || combo.minimum === 0) {
+        return combo.qty > 0 ? (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700 border border-green-300 whitespace-nowrap">
+                Healthy
+            </span>
+        ) : (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">
+                Zero Stock
+            </span>
+        );
+    }
+    if (combo.qty === 0 || combo.qty === null) {
+        return (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">
+                Zero Stock
+            </span>
+        );
+    }
+    if (combo.qty <= combo.minimum)
+        return (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">
+                Critical
+            </span>
+        );
+    return (
+        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700 border border-green-300 whitespace-nowrap">
+            Healthy
+        </span>
+    );
+})()}
                                                                         </div>
                                                                     )}
                                                                 </td>
