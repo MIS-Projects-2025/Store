@@ -56,6 +56,7 @@ class ConsignedDetail extends Model
         'maximum',
         'price',
         'bin_location',
+        'type',
     ];
 
     /**

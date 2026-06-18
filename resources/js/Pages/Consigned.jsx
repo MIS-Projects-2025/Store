@@ -466,6 +466,7 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
             maximum: "",
             price: "",
             bin_location: "",
+            type: "",
         });
         setErrors({});
     };
@@ -493,6 +494,7 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
         if (!step2Data.mat_description)
             newErrors.mat_description = "Description is required";
         if (!step2Data.supplier) newErrors.supplier = "Supplier is required";
+        if (!step2Data.type) newErrors.type = "Type is required";
         if (Object.keys(newErrors).length > 0) {
             setErrors(newErrors);
             return;
@@ -518,6 +520,7 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
                         maximum: "",
                         price: "",
                         bin_location: "",
+                        type: "",
                     });
                     setErrors({});
                     setProcessing(false);
@@ -573,6 +576,7 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
             minimum: combo.minimum,
             price: combo.price,
             bin_location: combo.bin_location,
+            type: combo.type || "",
         });
     };
 
@@ -608,6 +612,7 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
                       minimum: combo.minimum,
                       price: combo.price,
                       bin_location: editFormData.bin_location,
+                      type: editFormData.type,
                   }
                 : editFormData;
 
@@ -1487,24 +1492,30 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
                                                                     {currentSelection.description ||
                                                                         "N/A"}
                                                                 </div>
-                                                                {stockStatus === "critical" && (
+                                                                {stockStatus ===
+                                                                    "critical" && (
                                                                     <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">
                                                                         Critical
                                                                     </span>
                                                                 )}
-                                                                {stockStatus === "zero_stock" && (
+                                                                {stockStatus ===
+                                                                    "zero_stock" && (
                                                                     <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">
-                                                                        Zero Stock
+                                                                        Zero
+                                                                        Stock
                                                                     </span>
                                                                 )}
-                                                                {stockStatus === "healthy" && (
+                                                                {stockStatus ===
+                                                                    "healthy" && (
                                                                     <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700 border border-green-300 whitespace-nowrap">
                                                                         Healthy
                                                                     </span>
                                                                 )}
-                                                                {stockStatus === "no_inventory" && (
+                                                                {stockStatus ===
+                                                                    "no_inventory" && (
                                                                     <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">
-                                                                        Zero Stock
+                                                                        Zero
+                                                                        Stock
                                                                     </span>
                                                                 )}
                                                             </div>
@@ -1744,6 +1755,39 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
                             Add Item — Step 2
                         </h3>
                         <form onSubmit={handleStep2Save}>
+                            <div className="flex items-center gap-6 mb-4">
+                                <span className="text-sm font-medium text-base-content whitespace-nowrap">
+                                    Type *
+                                </span>
+                                {["TSPI", "Non-TSPI"].map((option) => (
+                                    <label
+                                        key={option}
+                                        className="flex items-center gap-2 cursor-pointer"
+                                    >
+                                        <input
+                                            type="radio"
+                                            name="type"
+                                            value={option}
+                                            checked={step2Data.type === option}
+                                            onChange={(e) =>
+                                                setStep2Data({
+                                                    ...step2Data,
+                                                    type: e.target.value,
+                                                })
+                                            }
+                                            className="radio radio-sm border-base-content/40 checked:border-base-content"
+                                        />
+                                        <span className="text-sm text-base-content">
+                                            {option}
+                                        </span>
+                                    </label>
+                                ))}
+                                {errors.type && (
+                                    <p className="text-xs text-red-400">
+                                        {errors.type}
+                                    </p>
+                                )}
+                            </div>
                             <div className="grid grid-cols-2 gap-4">
                                 {[
                                     {
@@ -1928,6 +1972,7 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
                                                     "Min",
                                                     "Price",
                                                     "Bin Location",
+                                                    "Type",
                                                     "Actions",
                                                 ].map((h) => (
                                                     <th key={h} className={th}>
@@ -2064,47 +2109,71 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
                                                                                     "N/A"}
                                                                             </span>
                                                                             {(() => {
-    if (combo.qty == null) return null;
-    if (
-        (!combo.qty || combo.qty === 0) &&
-        (!combo.minimum || combo.minimum === 0)
-    ) {
-        return (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">
-                Zero Stock
-            </span>
-        );
-    }
-    if (!combo.minimum || combo.minimum === 0) {
-        return combo.qty > 0 ? (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700 border border-green-300 whitespace-nowrap">
-                Healthy
-            </span>
-        ) : (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">
-                Zero Stock
-            </span>
-        );
-    }
-    if (combo.qty === 0 || combo.qty === null) {
-        return (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">
-                Zero Stock
-            </span>
-        );
-    }
-    if (combo.qty <= combo.minimum)
-        return (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">
-                Critical
-            </span>
-        );
-    return (
-        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700 border border-green-300 whitespace-nowrap">
-            Healthy
-        </span>
-    );
-})()}
+                                                                                if (
+                                                                                    combo.qty ==
+                                                                                    null
+                                                                                )
+                                                                                    return null;
+                                                                                if (
+                                                                                    (!combo.qty ||
+                                                                                        combo.qty ===
+                                                                                            0) &&
+                                                                                    (!combo.minimum ||
+                                                                                        combo.minimum ===
+                                                                                            0)
+                                                                                ) {
+                                                                                    return (
+                                                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">
+                                                                                            Zero
+                                                                                            Stock
+                                                                                        </span>
+                                                                                    );
+                                                                                }
+                                                                                if (
+                                                                                    !combo.minimum ||
+                                                                                    combo.minimum ===
+                                                                                        0
+                                                                                ) {
+                                                                                    return combo.qty >
+                                                                                        0 ? (
+                                                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700 border border-green-300 whitespace-nowrap">
+                                                                                            Healthy
+                                                                                        </span>
+                                                                                    ) : (
+                                                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">
+                                                                                            Zero
+                                                                                            Stock
+                                                                                        </span>
+                                                                                    );
+                                                                                }
+                                                                                if (
+                                                                                    combo.qty ===
+                                                                                        0 ||
+                                                                                    combo.qty ===
+                                                                                        null
+                                                                                ) {
+                                                                                    return (
+                                                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">
+                                                                                            Zero
+                                                                                            Stock
+                                                                                        </span>
+                                                                                    );
+                                                                                }
+                                                                                if (
+                                                                                    combo.qty <=
+                                                                                    combo.minimum
+                                                                                )
+                                                                                    return (
+                                                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">
+                                                                                            Critical
+                                                                                        </span>
+                                                                                    );
+                                                                                return (
+                                                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700 border border-green-300 whitespace-nowrap">
+                                                                                        Healthy
+                                                                                    </span>
+                                                                                );
+                                                                            })()}
                                                                         </div>
                                                                     )}
                                                                 </td>
@@ -2391,6 +2460,66 @@ export default function Consigned({ consignedItems = [], empStation = 1 }) {
                                                                     ) : (
                                                                         combo.bin_location ||
                                                                         "N/A"
+                                                                    )}
+                                                                </td>
+                                                                <td
+                                                                    className={
+                                                                        td
+                                                                    }
+                                                                >
+                                                                    {isEditing ? (
+                                                                        <div className="flex items-center gap-2 justify-center">
+                                                                            {[
+                                                                                "TSPI",
+                                                                                "Non-TSPI",
+                                                                            ].map(
+                                                                                (
+                                                                                    option,
+                                                                                ) => (
+                                                                                    <label
+                                                                                        key={
+                                                                                            option
+                                                                                        }
+                                                                                        className="flex items-center gap-1 cursor-pointer"
+                                                                                    >
+                                                                                        <input
+                                                                                            type="radio"
+                                                                                            name={`type-${idx}`}
+                                                                                            value={
+                                                                                                option
+                                                                                            }
+                                                                                            checked={
+                                                                                                editFormData.type ===
+                                                                                                option
+                                                                                            }
+                                                                                            onChange={(
+                                                                                                e,
+                                                                                            ) =>
+                                                                                                setEditFormData(
+                                                                                                    {
+                                                                                                        ...editFormData,
+                                                                                                        type: e
+                                                                                                            .target
+                                                                                                            .value,
+                                                                                                    },
+                                                                                                )
+                                                                                            }
+                                                                                            className="radio radio-xs border-base-content/40 checked:border-base-content"
+                                                                                        />
+                                                                                        <span className="text-xs text-base-content">
+                                                                                            {
+                                                                                                option
+                                                                                            }
+                                                                                        </span>
+                                                                                    </label>
+                                                                                ),
+                                                                            )}
+                                                                        </div>
+                                                                    ) : (
+                                                                        <span className="text-xs">
+                                                                            {combo.type ||
+                                                                                "N/A"}
+                                                                        </span>
                                                                     )}
                                                                 </td>
                                                                 <td

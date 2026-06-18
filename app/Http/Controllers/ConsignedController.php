@@ -314,6 +314,7 @@ $consignedData = Consigned::orderBy('created_at', 'desc')
             'maximum' => 'nullable|integer',
             'price' => 'nullable|numeric',
             'bin_location' => 'nullable|string|max:255',
+            'type' => 'nullable|string|max:50',
         ]);
 
         try {
@@ -411,6 +412,7 @@ $consignedData = Consigned::orderBy('created_at', 'desc')
                 'minimum' => $validated['minimum'],
                 'price' => $validated['price'],
                 'bin_location' => $validated['bin_location'],
+                'type' => $validated['type'] ?? null,
             ]);
 
             // Log history for new detail
@@ -513,6 +515,7 @@ $consignedData = Consigned::orderBy('created_at', 'desc')
             'minimum' => 'nullable|integer',
             'price' => 'nullable|numeric',
             'bin_location' => 'nullable|string|max:255',
+            'type' => 'nullable|string|max:50',
         ]);
 
         try {
@@ -533,6 +536,7 @@ $consignedData = Consigned::orderBy('created_at', 'desc')
                 'maximum' => $detail->maximum,
                 'price' => $detail->price,
                 'bin_location' => $detail->bin_location,
+                'type' => $detail->type,
             ];
 
             // Detect changes
@@ -1308,6 +1312,7 @@ $consignedData = Consigned::orderBy('created_at', 'desc')
                         'maximum' => $detail->maximum,
                         'price' => $detail->price,
                         'bin_location' => $detail->bin_location,
+                        'type' => $detail->type,
                     ];
                 });
 

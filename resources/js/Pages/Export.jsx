@@ -553,50 +553,6 @@ export default function Export({ tableData }) {
     );
 
     const [showWeeklyColumns, setShowWeeklyColumns] = useState(false);
-
-    const [exportSelectedItems, setExportSelectedItems] = useState(new Set());
-    const [exportSelectedSearch, setExportSelectedSearch] = useState("");
-    const [exportSelectedLoading, setExportSelectedLoading] = useState(false);
-    const [exportSelectedSaving, setExportSelectedSaving] = useState(false);
-    const [exportSelectedLastSaved, setExportSelectedLastSaved] =
-        useState(null);
-
-    // Load shared selection from DB on mount
-    useEffect(() => {
-        setExportSelectedLoading(true);
-        axios
-            .get(route("export-selected-items.index"))
-            .then((res) => {
-                setExportSelectedItems(new Set(res.data.items || []));
-            })
-            .catch(() => {})
-            .finally(() => setExportSelectedLoading(false));
-    }, []);
-
-    // Debounced save to DB whenever selection changes
-    useEffect(() => {
-        if (exportSelectedLoading) return;
-        const timeout = setTimeout(() => {
-            setExportSelectedSaving(true);
-            axios
-                .post(route("export-selected-items.store"), {
-                    items: [...exportSelectedItems],
-                })
-                .then(() => setExportSelectedLastSaved(new Date()))
-                .catch(() => {})
-                .finally(() => setExportSelectedSaving(false));
-        }, 800);
-
-        return () => clearTimeout(timeout);
-    }, [exportSelectedItems]);
-
-    const updateExportSelected = (updater) => {
-        setExportSelectedItems((prev) => {
-            const next = updater(prev);
-            return next;
-        });
-    };
-
     const itemsPerPage = 10;
 
     const updateSearchTerm = (tableKey, value) => {
@@ -748,7 +704,7 @@ export default function Export({ tableData }) {
         { id: "return", label: "Return", onlyFor: null },
         {
             id: "exportSelected",
-            label: "Export Selected",
+            label: "Export Non-TSPI",
             onlyFor: "consigned",
         },
     ];
@@ -2003,10 +1959,12 @@ export default function Export({ tableData }) {
                                                     <span
                                                         className={`font-bold ${
                                                             qty === 0
-    ? "text-error"
-    : qty <= (effectiveMin ?? 0)
-      ? "text-error"
-      : ""
+                                                                ? "text-error"
+                                                                : qty <=
+                                                                    (effectiveMin ??
+                                                                        0)
+                                                                  ? "text-error"
+                                                                  : ""
                                                         }`}
                                                     >
                                                         {qty}
@@ -2089,10 +2047,13 @@ export default function Export({ tableData }) {
                                                 <td className="text-center">
                                                     {(() => {
                                                         const badgeMap = {
-    "Zero Stock": "bg-red-100 text-red-700 border-red-300",
-    Critical:     "bg-red-100 text-red-700 border-red-300",
-    Healthy:      "bg-green-100 text-green-700 border-green-300",
-};
+                                                            "Zero Stock":
+                                                                "bg-red-100 text-red-700 border-red-300",
+                                                            Critical:
+                                                                "bg-red-100 text-red-700 border-red-300",
+                                                            Healthy:
+                                                                "bg-green-100 text-green-700 border-green-300",
+                                                        };
                                                         const cls =
                                                             badgeMap[remark] ??
                                                             "opacity-40";
@@ -3262,159 +3223,89 @@ export default function Export({ tableData }) {
             );
         }
 
-        // ===== CONSIGNED EXPORT SELECTED =====
+        // ===== CONSIGNED EXPORT NON-TSPI =====
         if (
             activeMainTab === "consigned" &&
             currentSubTab === "exportSelected"
         ) {
-            const selectorKey = "consigned_exportSelected_selector";
-            const previewKey = "consigned_exportSelected_preview";
-
-            const selectorFiltered = applySearch(
-                consignedInventoryData,
-                exportSelectedSearch,
+            // Filter: Only Non-TSPI items (exclude TSPI)
+            const nonTspiItems = consignedInventoryData.filter(
+                (item) => item.type !== "TSPI",
             );
-            const {
-                data: selectorPaged,
-                totalPages: selectorTotalPages,
-                currentPage: selectorCurrentPage,
-                totalItems: selectorTotal,
-            } = getPaginatedData(selectorFiltered, selectorKey);
 
-            const allOnSelectorPageSelected =
-                selectorPaged.length > 0 &&
-                selectorPaged.every((i) => exportSelectedItems.has(i.itemCode));
+            // Build enriched data for all Non-TSPI items
+            const exportData = nonTspiItems.map((item) => {
+                const today = new Date(consignedRefDate);
+                today.setHours(23, 59, 59, 999);
 
-            const toggleExportItem = (itemCode) => {
-                updateExportSelected((prev) => {
-                    const next = new Set(prev);
-                    next.has(itemCode)
-                        ? next.delete(itemCode)
-                        : next.add(itemCode);
-                    return next;
-                });
-            };
+                const w = consignedIssuedWeeklyMap[item.itemCode];
+                const w1 = w?.w1 || 0;
+                const w2 = w?.w2 || 0;
+                const w3 = w?.w3 || 0;
+                const w4 = w?.w4 || 0;
+                const total4w = w1 + w2 + w3 + w4;
 
-            const toggleSelectorPage = () => {
-                updateExportSelected((prev) => {
-                    const next = new Set(prev);
-                    if (allOnSelectorPageSelected) {
-                        selectorPaged.forEach((i) => next.delete(i.itemCode));
-                    } else {
-                        selectorPaged.forEach((i) => next.add(i.itemCode));
-                    }
-                    return next;
-                });
-            };
-
-            const selectAllFiltered = () => {
-                updateExportSelected((prev) => {
-                    const next = new Set(prev);
-                    selectorFiltered.forEach((i) => next.add(i.itemCode));
-                    return next;
-                });
-            };
-
-            const clearAllSelected = () => {
-                updateExportSelected(() => new Set());
-                setCurrentPages((p) => ({ ...p, [previewKey]: 1 }));
-            };
-
-            const selectedPreviewData = consignedInventoryData
-                .filter((item) => exportSelectedItems.has(item.itemCode))
-                .map((item) => {
-                    const today = new Date(consignedRefDate);
-                    today.setHours(23, 59, 59, 999);
-
-                    const w = consignedIssuedWeeklyMap[item.itemCode];
-                    const w1 = w?.w1 || 0;
-                    const w2 = w?.w2 || 0;
-                    const w3 = w?.w3 || 0;
-                    const w4 = w?.w4 || 0;
-                    const total4w = w1 + w2 + w3 + w4;
-
-                    const { weeklyUsage, recalibMin } = calcConsignedMetrics(
-                        total4w,
-                        item.category,
-                    );
-                    const effectiveMin = recalibMin ?? item.minimum;
-                    const qty = item.quantity ?? 0;
-                    const delta =
-                        effectiveMin != null ? qty - effectiveMin : null;
-                    const weeksOfInv =
-                        effectiveMin != null && effectiveMin > 0
-                            ? parseFloat((qty / effectiveMin).toFixed(2))
-                            : null;
-
-                    const expirationDate = item.expiration
-                        ? new Date(item.expiration)
+                const { weeklyUsage, recalibMin } = calcConsignedMetrics(
+                    total4w,
+                    item.category,
+                );
+                const effectiveMin = recalibMin ?? item.minimum;
+                const qty = item.quantity ?? 0;
+                const delta = effectiveMin != null ? qty - effectiveMin : null;
+                const weeksOfInv =
+                    effectiveMin != null && effectiveMin > 0
+                        ? parseFloat((qty / effectiveMin).toFixed(2))
                         : null;
-                    const isExpired = expirationDate && expirationDate < today;
-                    const isNearExpiry =
-                        expirationDate &&
-                        expirationDate >= today &&
-                        expirationDate <=
-                            new Date(
-                                today.getTime() + 30 * 24 * 60 * 60 * 1000,
-                            );
 
-                    return {
-                        ...item,
-                        w1,
-                        w2,
-                        w3,
-                        w4,
-                        total4w,
-                        weeklyUsage,
-                        effectiveMin,
-                        qty,
-                        delta,
-                        weeksOfInv,
-                        isExpired,
-                        isNearExpiry,
-                        remark: getConsignedRemark(qty, effectiveMin),
-                    };
-                });
+                const expirationDate = item.expiration
+                    ? new Date(item.expiration)
+                    : null;
+                const isExpired = expirationDate && expirationDate < today;
+                const isNearExpiry =
+                    expirationDate &&
+                    expirationDate >= today &&
+                    expirationDate <=
+                        new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
 
-            const {
-                data: previewPaged,
-                totalPages: previewTotalPages,
-                currentPage: previewCurrentPage,
-                totalItems: previewTotal,
-            } = getPaginatedData(selectedPreviewData, previewKey);
-
-            const handleExportSelected = () => {
-                const rows = selectedPreviewData.map((item) => ({
+                return {
                     itemCode: item.itemCode,
                     materialDescription: item.materialDescription,
                     category: item.category,
                     supplier: item.supplier,
-                    [weekLabels[0]]: item.w1,
-                    [weekLabels[1]]: item.w2,
-                    [weekLabels[2]]: item.w3,
-                    [weekLabels[3]]: item.w4,
-                    "Total (4w)": item.total4w,
-                    "Weekly Usage": item.weeklyUsage,
+                    [weekLabels[0]]: w1,
+                    [weekLabels[1]]: w2,
+                    [weekLabels[2]]: w3,
+                    [weekLabels[3]]: w4,
+                    "Total (4w)": total4w,
+                    "Weekly Usage": weeklyUsage,
                     "Target Wks of Inventory": getBuffer(item.category),
-                    soh: item.qty,
-                    "Delta (SOH - Min)": item.delta ?? "—",
-                    "Weeks of Inventory": item.weeksOfInv ?? "—",
+                    soh: qty,
+                    "Delta (SOH - Min)": delta ?? "—",
+                    "Weeks of Inventory": weeksOfInv ?? "—",
                     qtyPerBox: item.qtyPerBox,
                     uom: item.uom,
                     binLocation: item.binLocation,
-                    minimum: item.effectiveMin ?? "—",
+                    minimum: effectiveMin ?? "—",
                     price: item.price,
                     expiration: item.expiration || "No expiry",
-                    expirationStatus: item.isExpired
+                    expirationStatus: isExpired
                         ? "Expired"
-                        : item.isNearExpiry
+                        : isNearExpiry
                           ? "Near Expiry"
                           : "OK",
-                    remarks: item.remark,
-                }));
+                    remarks: getConsignedRemark(qty, effectiveMin),
+                };
+            });
+
+            // Pagination
+            const tableKey = "consigned_exportNonTspi";
+            const { data, totalPages, currentPage, totalItems } =
+                getPaginatedData(exportData, tableKey);
+
+            const handleExport = () => {
                 exportToCSV(
-                    rows,
-                    `consigned_export_selected_${consignedRefDate}`,
+                    exportData,
+                    `consigned_export_non_tspi_${consignedRefDate}`,
                 );
             };
 
@@ -3424,28 +3315,21 @@ export default function Export({ tableData }) {
                     <div className="flex justify-between items-center mb-4">
                         <div>
                             <h3 className="text-lg font-bold">
-                                Consigned — Export Selected
+                                Consigned — Export Non-TSPI
                             </h3>
                             <p className="text-xs opacity-50 mt-0.5">
-                                Select items to include in your export. Your
-                                selection is shared across all users and saved
-                                automatically.
+                                Displaying all Non-TSPI items. Click Export CSV
+                                to download.
                             </p>
                         </div>
-                        <div className="flex items-center gap-3">
-                            {exportSelectedItems.size > 0 && (
-                                <span className="text-sm opacity-60">
-                                    {exportSelectedItems.size} item
-                                    {exportSelectedItems.size !== 1
-                                        ? "s"
-                                        : ""}{" "}
-                                    selected
-                                </span>
-                            )}
+                        <div className="flex items-center gap-4">
+                            <span className="text-sm opacity-60">
+                                Total items: {totalItems}
+                            </span>
                             <button
-                                onClick={handleExportSelected}
+                                onClick={handleExport}
                                 className="btn btn-sm btn-outline"
-                                disabled={exportSelectedItems.size === 0}
+                                disabled={exportData.length === 0}
                             >
                                 <svg
                                     xmlns="http://www.w3.org/2000/svg"
@@ -3508,405 +3392,230 @@ export default function Export({ tableData }) {
                         </p>
                     </div>
 
-                    {/* ── Saved-selection banner ── */}
-                    <div className="flex items-center gap-2 mb-4 p-3 rounded-lg border border-info/30 bg-info/5 text-sm">
-                        <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            className="h-4 w-4 shrink-0 text-info"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                        >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20A10 10 0 0012 2z"
-                            />
-                        </svg>
-                        {exportSelectedLoading ? (
-                            <span className="opacity-50">
-                                Loading saved selection...
-                            </span>
-                        ) : (
-                            <span>
-                                <strong>{exportSelectedItems.size}</strong> item
-                                {exportSelectedItems.size !== 1 ? "s" : ""}{" "}
-                                selected — shared across all users.
-                            </span>
-                        )}
-                        <span className="ml-auto flex items-center gap-2">
-                            {exportSelectedSaving && (
-                                <span className="text-xs opacity-50 flex items-center gap-1">
-                                    <span className="loading loading-spinner loading-xs"></span>
-                                    Saving...
-                                </span>
-                            )}
-                            {!exportSelectedSaving &&
-                                exportSelectedLastSaved && (
-                                    <span className="text-xs opacity-40">
-                                        Saved{" "}
-                                        {exportSelectedLastSaved.toLocaleTimeString()}
-                                    </span>
-                                )}
-                            {exportSelectedItems.size > 0 && (
-                                <button
-                                    onClick={clearAllSelected}
-                                    className="btn btn-xs btn-ghost text-error"
-                                >
-                                    Clear all
-                                </button>
-                            )}
-                        </span>
-                    </div>
-
-                    {/* ── Two-panel layout ── */}
-                    <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-                        {/* LEFT: Item selector */}
-                        <div className="lg:col-span-2 border border-base-content/20 rounded-lg p-3 flex flex-col gap-3">
-                            <div className="flex items-center justify-between">
-                                <span className="text-sm font-semibold opacity-70 uppercase tracking-wide">
-                                    All Items
-                                </span>
-                                <div className="flex gap-1">
-                                    <button
-                                        onClick={selectAllFiltered}
-                                        className="btn btn-xs btn-ghost"
-                                    >
-                                        Select All
-                                    </button>
-                                    <button
-                                        onClick={clearAllSelected}
-                                        className="btn btn-xs btn-ghost text-error"
-                                        disabled={
-                                            exportSelectedItems.size === 0
-                                        }
-                                    >
-                                        Clear
-                                    </button>
-                                </div>
-                            </div>
-
-                            <SearchBar
-                                value={exportSelectedSearch}
-                                onChange={(val) => {
-                                    setExportSelectedSearch(val);
-                                    setCurrentPages((p) => ({
-                                        ...p,
-                                        [selectorKey]: 1,
-                                    }));
-                                }}
-                                placeholder="Search items..."
-                            />
-
-                            <div className="overflow-x-auto">
-                                <table className="table table-sm table-zebra [&_th]:border-y [&_th]:border-base-content/20 [&_td]:border-y [&_td]:border-base-content/20">
-                                    <thead>
-                                        <tr>
-                                            <th className="w-8">
-                                                <input
-                                                    type="checkbox"
-                                                    className="checkbox checkbox-sm"
-                                                    checked={
-                                                        allOnSelectorPageSelected
-                                                    }
-                                                    onChange={
-                                                        toggleSelectorPage
-                                                    }
-                                                />
-                                            </th>
-                                            <th>Item Code</th>
-                                            <th>Description</th>
-                                            <th className="text-center">SOH</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {selectorPaged.length > 0 ? (
-                                            selectorPaged.map((item, idx) => {
-                                                const isSelected =
-                                                    exportSelectedItems.has(
-                                                        item.itemCode,
-                                                    );
-                                                return (
-                                                    <tr
-                                                        key={idx}
-                                                        className={`cursor-pointer hover:bg-base-200 ${isSelected ? "bg-primary/10" : ""}`}
-                                                        onClick={() =>
-                                                            toggleExportItem(
-                                                                item.itemCode,
-                                                            )
-                                                        }
+                    {/* ── Table ── */}
+                    <div className="overflow-x-auto">
+                        <table className="table table-zebra [&_th]:border-y [&_th]:border-base-content/20 [&_td]:border-y [&_td]:border-base-content/20">
+                            <thead>
+                                <tr>
+                                    <th>Item Code</th>
+                                    <th>Material Description</th>
+                                    <th>Category</th>
+                                    <th>Supplier</th>
+                                    <th className="text-center">
+                                        {weekLabels[0]}
+                                    </th>
+                                    <th className="text-center">
+                                        {weekLabels[1]}
+                                    </th>
+                                    <th className="text-center">
+                                        {weekLabels[2]}
+                                    </th>
+                                    <th className="text-center">
+                                        {weekLabels[3]}
+                                    </th>
+                                    <th className="text-center">Total (4w)</th>
+                                    <th className="text-center">
+                                        Weekly Usage
+                                    </th>
+                                    <th className="text-center">SOH</th>
+                                    <th className="text-center">
+                                        Delta (SOH − Min)
+                                    </th>
+                                    <th className="text-center">
+                                        Weeks of Inventory
+                                    </th>
+                                    <th>Qty per Box</th>
+                                    <th>UOM</th>
+                                    <th>Bin Location</th>
+                                    <th className="text-center">Minimum</th>
+                                    <th>Price</th>
+                                    <th>Expiration</th>
+                                    <th className="text-center">Remarks</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {data.length > 0 ? (
+                                    data.map((item, index) => {
+                                        const badgeMap = {
+                                            "Zero Stock":
+                                                "bg-red-100 text-red-700 border-red-300",
+                                            Critical:
+                                                "bg-red-100 text-red-700 border-red-300",
+                                            Healthy:
+                                                "bg-green-100 text-green-700 border-green-300",
+                                        };
+                                        return (
+                                            <tr key={index}>
+                                                <td className="font-semibold">
+                                                    {item.itemCode}
+                                                </td>
+                                                <td>
+                                                    {item.materialDescription}
+                                                </td>
+                                                <td>
+                                                    <span className="badge badge-outline badge-sm">
+                                                        {item.category}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <span className="badge badge-outline badge-sm">
+                                                        {item.supplier}
+                                                    </span>
+                                                </td>
+                                                <td className="text-center">
+                                                    <span
+                                                        className={`font-bold ${item[weekLabels[0]] > 0 ? "text-warning" : "opacity-40"}`}
                                                     >
-                                                        <td
-                                                            onClick={(e) =>
-                                                                e.stopPropagation()
-                                                            }
+                                                        {item[weekLabels[0]]}
+                                                    </span>
+                                                </td>
+                                                <td className="text-center">
+                                                    <span
+                                                        className={`font-bold ${item[weekLabels[1]] > 0 ? "text-warning" : "opacity-40"}`}
+                                                    >
+                                                        {item[weekLabels[1]]}
+                                                    </span>
+                                                </td>
+                                                <td className="text-center">
+                                                    <span
+                                                        className={`font-bold ${item[weekLabels[2]] > 0 ? "text-warning" : "opacity-40"}`}
+                                                    >
+                                                        {item[weekLabels[2]]}
+                                                    </span>
+                                                </td>
+                                                <td className="text-center">
+                                                    <span
+                                                        className={`font-bold ${item[weekLabels[3]] > 0 ? "text-warning" : "opacity-40"}`}
+                                                    >
+                                                        {item[weekLabels[3]]}
+                                                    </span>
+                                                </td>
+                                                <td className="text-center">
+                                                    <span
+                                                        className={`font-bold ${item["Total (4w)"] > 0 ? "text-error" : "opacity-40"}`}
+                                                    >
+                                                        {item["Total (4w)"]}
+                                                    </span>
+                                                </td>
+                                                <td className="text-center">
+                                                    <span
+                                                        className={`font-bold ${item["Weekly Usage"] > 0 ? "text-warning" : "opacity-40"}`}
+                                                    >
+                                                        {item["Weekly Usage"]}
+                                                    </span>
+                                                </td>
+                                                <td className="text-center">
+                                                    <span
+                                                        className={`font-bold ${item.soh === 0 ? "text-error" : item.soh <= item.minimum ? "text-error" : ""}`}
+                                                    >
+                                                        {item.soh}
+                                                    </span>
+                                                </td>
+                                                <td className="text-center">
+                                                    {item[
+                                                        "Delta (SOH - Min)"
+                                                    ] !== "—" ? (
+                                                        <span
+                                                            className={`font-semibold ${item["Delta (SOH - Min)"] < 0 ? "text-error" : item["Delta (SOH - Min)"] === 0 ? "text-warning" : "text-success"}`}
                                                         >
-                                                            <input
-                                                                type="checkbox"
-                                                                className="checkbox checkbox-sm checkbox-primary"
-                                                                checked={
-                                                                    isSelected
-                                                                }
-                                                                onChange={() =>
-                                                                    toggleExportItem(
-                                                                        item.itemCode,
-                                                                    )
-                                                                }
-                                                            />
-                                                        </td>
-                                                        <td className="font-semibold text-xs">
-                                                            {item.itemCode}
-                                                        </td>
-                                                        <td className="text-xs">
+                                                            {item[
+                                                                "Delta (SOH - Min)"
+                                                            ] > 0
+                                                                ? `+${item["Delta (SOH - Min)"]}`
+                                                                : item[
+                                                                      "Delta (SOH - Min)"
+                                                                  ]}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="opacity-40">
+                                                            —
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td className="text-center">
+                                                    {item[
+                                                        "Weeks of Inventory"
+                                                    ] !== "—" ? (
+                                                        <span
+                                                            className={`font-semibold ${item["Weeks of Inventory"] < 1 ? "text-error" : item["Weeks of Inventory"] < 2 ? "text-warning" : ""}`}
+                                                        >
                                                             {
-                                                                item.materialDescription
+                                                                item[
+                                                                    "Weeks of Inventory"
+                                                                ]
                                                             }
-                                                        </td>
-                                                        <td className="text-xs text-center font-bold">
-                                                            {item.quantity ?? 0}
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })
-                                        ) : (
-                                            <tr>
-                                                <td
-                                                    colSpan="4"
-                                                    className="text-center opacity-50 text-xs py-4"
-                                                >
-                                                    No items found
+                                                        </span>
+                                                    ) : (
+                                                        <span className="opacity-40">
+                                                            —
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td>
+                                                    {item.qtyPerBox || "N/A"}
+                                                </td>
+                                                <td>{item.uom}</td>
+                                                <td>{item.binLocation}</td>
+                                                <td className="text-center">
+                                                    {item.minimum}
+                                                </td>
+                                                <td className="font-semibold">
+                                                    {typeof item.price ===
+                                                    "number"
+                                                        ? `₱${item.price.toFixed(2)}`
+                                                        : item.price || "₱0.00"}
+                                                </td>
+                                                <td>
+                                                    <span
+                                                        className={`font-medium ${item.expirationStatus === "Expired" ? "text-error" : item.expirationStatus === "Near Expiry" ? "text-warning" : ""}`}
+                                                    >
+                                                        {item.expiration}
+                                                        {item.expirationStatus ===
+                                                            "Expired" && (
+                                                            <span className="text-xs ml-1">
+                                                                (Expired)
+                                                            </span>
+                                                        )}
+                                                        {item.expirationStatus ===
+                                                            "Near Expiry" && (
+                                                            <span className="text-xs ml-1">
+                                                                (Near expiry)
+                                                            </span>
+                                                        )}
+                                                    </span>
+                                                </td>
+                                                <td className="text-center">
+                                                    <span
+                                                        className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border whitespace-nowrap ${badgeMap[item.remarks] ?? "opacity-40"}`}
+                                                    >
+                                                        {item.remarks}
+                                                    </span>
                                                 </td>
                                             </tr>
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-
-                            {selectorTotalPages > 1 && (
-                                <Pagination
-                                    currentPage={selectorCurrentPage}
-                                    totalPages={selectorTotalPages}
-                                    onPageChange={(p) =>
-                                        handlePageChange(selectorKey, p)
-                                    }
-                                />
-                            )}
-                            <div className="text-xs opacity-50 text-center">
-                                {selectorTotal} items total ·{" "}
-                                {exportSelectedItems.size} selected
-                            </div>
-                        </div>
-
-                        {/* RIGHT: Preview of selected items */}
-                        <div className="lg:col-span-3 border border-base-content/20 rounded-lg p-3 flex flex-col gap-3">
-                            <div className="flex items-center justify-between">
-                                <span className="text-sm font-semibold opacity-70 uppercase tracking-wide">
-                                    Preview
-                                </span>
-                                {previewTotal > 0 && (
-                                    <span className="text-xs opacity-50">
-                                        {previewTotal} item
-                                        {previewTotal !== 1 ? "s" : ""} · will
-                                        be exported
-                                    </span>
+                                        );
+                                    })
+                                ) : (
+                                    <tr>
+                                        <td
+                                            colSpan="20"
+                                            className="text-center opacity-50"
+                                        >
+                                            No Non-TSPI items found
+                                        </td>
+                                    </tr>
                                 )}
-                            </div>
-
-                            {exportSelectedItems.size === 0 ? (
-                                <div className="flex flex-col items-center justify-center py-16 opacity-40">
-                                    <svg
-                                        xmlns="http://www.w3.org/2000/svg"
-                                        className="h-10 w-10 mb-3"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={1.5}
-                                            d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                                        />
-                                    </svg>
-                                    <p className="text-sm">
-                                        Select items on the left to preview and
-                                        export
-                                    </p>
-                                </div>
-                            ) : (
-                                <>
-                                    <div className="overflow-x-auto">
-                                        <table className="table table-sm table-zebra [&_th]:border-y [&_th]:border-base-content/20 [&_td]:border-y [&_td]:border-base-content/20">
-                                            <thead>
-                                                <tr>
-                                                    <th></th>
-                                                    <th>Item Code</th>
-                                                    <th>Description</th>
-                                                    <th>Category</th>
-                                                    <th className="text-center">
-                                                        Weekly Usage
-                                                    </th>
-                                                    <th className="text-center">
-                                                        SOH
-                                                    </th>
-                                                    <th className="text-center">
-                                                        Min
-                                                    </th>
-                                                    <th className="text-center">
-                                                        Delta
-                                                    </th>
-                                                    <th className="text-center">
-                                                        Wks Inv
-                                                    </th>
-                                                    <th className="text-center">
-                                                        Remarks
-                                                    </th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {previewPaged.map(
-                                                    (item, idx) => {
-                                                        const badgeMap = {
-                                                            "No Inventory": "bg-red-100 text-red-700 border-red-300",
-                                                            "Zero Stock":   "bg-red-100 text-red-700 border-red-300",
-                                                            Critical:
-                                                                "bg-red-100 text-red-700 border-red-300",
-                                                            "Low Stock":
-                                                                "bg-yellow-100 text-yellow-700 border-yellow-300",
-                                                            Healthy:
-                                                                "bg-green-100 text-green-700 border-green-300",
-                                                        };
-                                                        return (
-                                                            <tr key={idx}>
-                                                                <td>
-                                                                    <button
-                                                                        className="btn btn-xs btn-ghost text-error opacity-60 hover:opacity-100"
-                                                                        onClick={() =>
-                                                                            toggleExportItem(
-                                                                                item.itemCode,
-                                                                            )
-                                                                        }
-                                                                        title="Remove from selection"
-                                                                    >
-                                                                        ✕
-                                                                    </button>
-                                                                </td>
-                                                                <td className="font-semibold text-xs">
-                                                                    {
-                                                                        item.itemCode
-                                                                    }
-                                                                </td>
-                                                                <td className="text-xs">
-                                                                    {
-                                                                        item.materialDescription
-                                                                    }
-                                                                </td>
-                                                                <td>
-                                                                    <span className="badge badge-outline badge-xs">
-                                                                        {
-                                                                            item.category
-                                                                        }
-                                                                    </span>
-                                                                </td>
-                                                                <td className="text-center text-xs">
-                                                                    <span
-                                                                        className={`font-bold ${item.weeklyUsage > 0 ? "text-warning" : "opacity-40"}`}
-                                                                    >
-                                                                        {
-                                                                            item.weeklyUsage
-                                                                        }
-                                                                    </span>
-                                                                </td>
-                                                                <td className="text-center text-xs">
-                                                                    <span
-                                                                        className={`font-bold ${
-                                                                            item.qty ===
-                                                                            0
-                                                                                ? "text-error"
-                                                                                : item.qty <=
-                                                                                    (item.effectiveMin ??
-                                                                                        0)
-                                                                                  ? "text-error"
-                                                                                  : item.qty <=
-                                                                                      (item.effectiveMin ??
-                                                                                          0) *
-                                                                                          1.5
-                                                                                    ? "text-warning"
-                                                                                    : ""
-                                                                        }`}
-                                                                    >
-                                                                        {
-                                                                            item.qty
-                                                                        }
-                                                                    </span>
-                                                                </td>
-                                                                <td className="text-center text-xs">
-                                                                    {item.effectiveMin ??
-                                                                        "—"}
-                                                                </td>
-                                                                <td className="text-center text-xs">
-                                                                    {item.delta !==
-                                                                    null ? (
-                                                                        <span
-                                                                            className={`font-semibold ${item.delta < 0 ? "text-error" : item.delta === 0 ? "text-warning" : "text-success"}`}
-                                                                        >
-                                                                            {item.delta >
-                                                                            0
-                                                                                ? `+${item.delta}`
-                                                                                : item.delta}
-                                                                        </span>
-                                                                    ) : (
-                                                                        <span className="opacity-40">
-                                                                            —
-                                                                        </span>
-                                                                    )}
-                                                                </td>
-                                                                <td className="text-center text-xs">
-                                                                    {item.weeksOfInv !==
-                                                                    null ? (
-                                                                        <span
-                                                                            className={`font-semibold ${item.weeksOfInv < 1 ? "text-error" : item.weeksOfInv < 2 ? "text-warning" : ""}`}
-                                                                        >
-                                                                            {
-                                                                                item.weeksOfInv
-                                                                            }
-                                                                        </span>
-                                                                    ) : (
-                                                                        <span className="opacity-40">
-                                                                            —
-                                                                        </span>
-                                                                    )}
-                                                                </td>
-                                                                <td className="text-center">
-                                                                    <span
-                                                                        className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border whitespace-nowrap ${badgeMap[item.remark] ?? "opacity-40"}`}
-                                                                    >
-                                                                        {
-                                                                            item.remark
-                                                                        }
-                                                                    </span>
-                                                                </td>
-                                                            </tr>
-                                                        );
-                                                    },
-                                                )}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                    {previewTotalPages > 1 && (
-                                        <Pagination
-                                            currentPage={previewCurrentPage}
-                                            totalPages={previewTotalPages}
-                                            onPageChange={(p) =>
-                                                handlePageChange(previewKey, p)
-                                            }
-                                        />
-                                    )}
-                                </>
-                            )}
-                        </div>
+                            </tbody>
+                        </table>
                     </div>
+                    {totalPages > 1 && (
+                        <Pagination
+                            currentPage={currentPage}
+                            totalPages={totalPages}
+                            onPageChange={(page) =>
+                                handlePageChange(tableKey, page)
+                            }
+                        />
+                    )}
                 </CardWrap>
             );
         }
