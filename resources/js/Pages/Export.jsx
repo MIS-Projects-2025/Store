@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import axios from "axios";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout";
 import { Head, usePage } from "@inertiajs/react";
+import * as XLSX from "xlsx";
 
 // ─── CSV Export ────────────────────────────────────────────────────────────────
 const exportToCSV = (data, filename) => {
@@ -59,6 +60,56 @@ const exportToCSV = (data, filename) => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+};
+
+// ─── XLSX Export (Consigned tabs only) ─────────────────────────────────────
+const exportToXLSX = (data, filename, textColumns = []) => {
+    if (!data || data.length === 0) {
+        alert("No data to export!");
+        return;
+    }
+
+    const headers = Object.keys(data[0]);
+    const worksheet = XLSX.utils.json_to_sheet(data, { header: headers });
+
+    data.forEach((row, rowIndex) => {
+        headers.forEach((header, colIndex) => {
+            if (!textColumns.includes(header)) return;
+            const cellRef = XLSX.utils.encode_cell({
+                r: rowIndex + 1,
+                c: colIndex,
+            });
+            const cell = worksheet[cellRef];
+            if (cell) {
+                cell.t = "s";
+                cell.v =
+                    row[header] !== null && row[header] !== undefined
+                        ? String(row[header])
+                        : "";
+            }
+        });
+    });
+
+    worksheet["!cols"] = headers.map((header) => {
+        const maxLen = Math.max(
+            header.length,
+            ...data.map((row) => {
+                const val = row[header];
+                return val !== null && val !== undefined
+                    ? String(val).length
+                    : 0;
+            }),
+        );
+        return { wch: Math.min(Math.max(maxLen + 2, 10), 50) };
+    });
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Sheet1");
+
+    XLSX.writeFile(
+        workbook,
+        `${filename}_${new Date().toISOString().split("T")[0]}.xlsx`,
+    );
 };
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -464,13 +515,57 @@ const ACTION_LABELS = {
 };
 
 // ─── Main Export Component ─────────────────────────────────────────────────────
-export default function Export({ tableData }) {
+export default function Export({ dataUrl }) {
     const [activeMainTab, setActiveMainTab] = useState("consumable");
     const [activeSubTabs, setActiveSubTabs] = useState({
         consumable: "inventory",
         supplies: "inventory",
         consigned: "inventory",
     });
+
+    // ── Lazy-loaded data cache ────────────────────────────────────────────────
+    const [tabData, setTabData] = useState({});
+    const [tabLoading, setTabLoading] = useState({});
+    const [tabError, setTabError] = useState({});
+
+    const fetchTabData = async (tab, subTab) => {
+        const key = `${tab}|${subTab}`;
+        if (tabData[key] || tabLoading[key]) return;
+
+        setTabLoading((prev) => ({ ...prev, [key]: true }));
+        setTabError((prev) => ({ ...prev, [key]: null }));
+
+        try {
+            const res = await axios.get(dataUrl, {
+                params: { tab, subTab },
+            });
+            setTabData((prev) => ({ ...prev, [key]: res.data }));
+        } catch (err) {
+            setTabError((prev) => ({
+                ...prev,
+                [key]: err?.response?.data?.error || "Failed to load data.",
+            }));
+        } finally {
+            setTabLoading((prev) => ({ ...prev, [key]: false }));
+        }
+    };
+
+    useEffect(() => {
+        const sub = activeSubTabs[activeMainTab];
+        fetchTabData(activeMainTab, sub);
+
+        if (activeMainTab === "consigned" && sub === "inventory") {
+            fetchTabData("consigned", "issuance");
+        }
+        if (activeMainTab === "consigned" && sub === "exportSelected") {
+            fetchTabData("consigned", "inventory");
+            fetchTabData("consigned", "issuance");
+        }
+    }, [activeMainTab, activeSubTabs]);
+
+    const getTabPayload = (tab, subTab) => tabData[`${tab}|${subTab}`] || {};
+    const isTabLoading = (tab, subTab) => !!tabLoading[`${tab}|${subTab}`];
+    const getTabError = (tab, subTab) => tabError[`${tab}|${subTab}`] || null;
 
     const [currentPages, setCurrentPages] = useState({
         consumable_inventory: 1,
@@ -714,17 +809,27 @@ export default function Export({ tableData }) {
     const subTabLabel = subTabs.find((t) => t.id === currentSubTab)?.label;
     const title = `${mainTabLabel} - ${subTabLabel}`;
 
-    const consumableInventoryData = tableData?.consumable?.inventory || [];
-    const consumableIssuanceData = tableData?.consumable?.issuance || [];
-    const consumableReturnData = tableData?.consumable?.return || [];
-    const suppliesInventoryData = tableData?.supplies?.inventory || [];
-    const suppliesIssuanceData = tableData?.supplies?.issuance || [];
-    const suppliesReturnData = tableData?.supplies?.return || [];
-    const consignedInventoryData = tableData?.consigned?.inventory || [];
-    const consignedIssuanceData = tableData?.consigned?.issuance || [];
-    const consignedReturnData = tableData?.consigned?.return || [];
+    const consumableInventoryData =
+        getTabPayload("consumable", "inventory").inventory || [];
+    const consumableIssuanceData =
+        getTabPayload("consumable", "issuance").issuance || [];
+    const consumableReturnData =
+        getTabPayload("consumable", "return").return || [];
+    const suppliesInventoryData =
+        getTabPayload("supplies", "inventory").inventory || [];
+    const suppliesIssuanceData =
+        getTabPayload("supplies", "issuance").issuance || [];
+    const suppliesReturnData = getTabPayload("supplies", "return").return || [];
+    const consignedInventoryData =
+        getTabPayload("consigned", "inventory").inventory || [];
+    const consignedExportSelectedData =
+        getTabPayload("consigned", "exportSelected").inventory || [];
+    const consignedIssuanceData =
+        getTabPayload("consigned", "issuance").issuance || [];
+    const consignedReturnData =
+        getTabPayload("consigned", "return").return || [];
     const consignedInventoryHistoryData =
-        tableData?.consigned?.inventoryHistory || [];
+        getTabPayload("consigned", "inventoryHistory").inventoryHistory || [];
 
     // ── Consigned: 4-week issued totals keyed by itemCode ────────────────────
     const { consignedIssuedWeeklyMap, weekLabels } = useMemo(() => {
@@ -780,6 +885,28 @@ export default function Export({ tableData }) {
     }, [consignedIssuanceData, consignedRefDate]);
 
     const renderContent = () => {
+        const currentSub = activeSubTabs[activeMainTab];
+
+        if (isTabLoading(activeMainTab, currentSub)) {
+            return (
+                <div className="border border-base-content/20 rounded-lg p-12 flex items-center justify-center gap-3 opacity-60">
+                    <span className="loading loading-spinner loading-md"></span>
+                    <span>Loading data…</span>
+                </div>
+            );
+        }
+
+        if (getTabError(activeMainTab, currentSub)) {
+            return (
+                <div className="border border-error/40 rounded-lg p-6 text-error">
+                    <p className="font-semibold">Failed to load data</p>
+                    <p className="text-sm mt-1 opacity-70">
+                        {getTabError(activeMainTab, currentSub)}
+                    </p>
+                </div>
+            );
+        }
+
         // ===== CONSUMABLE INVENTORY =====
         if (activeMainTab === "consumable" && currentSubTab === "inventory") {
             const tableKey = "consumable_inventory";
@@ -1721,9 +1848,10 @@ export default function Export({ tableData }) {
                                     ),
                                 };
                             });
-                            exportToCSV(
+                            exportToXLSX(
                                 enriched,
                                 `consigned_inventory_${consignedRefDate}`,
+                                ["itemCode"],
                             );
                         }}
                         exportDisabled={consignedInventoryData.length === 0}
@@ -2333,7 +2461,9 @@ export default function Export({ tableData }) {
                     quantity: r.oldQty,
                     newQuantity: r.qty,
                 }));
-                exportToCSV(exportData, "consigned_inventory_history");
+                exportToXLSX(exportData, "consigned_inventory_history", [
+                    "itemCode",
+                ]);
             };
 
             const selectedCodes = [...selectedHistoryItems];
@@ -3229,7 +3359,7 @@ export default function Export({ tableData }) {
             currentSubTab === "exportSelected"
         ) {
             // Filter: Only Non-TSPI items (exclude TSPI)
-            const nonTspiItems = consignedInventoryData.filter(
+            const nonTspiItems = consignedExportSelectedData.filter(
                 (item) => item.type !== "TSPI",
             );
 
@@ -3303,9 +3433,10 @@ export default function Export({ tableData }) {
                 getPaginatedData(exportData, tableKey);
 
             const handleExport = () => {
-                exportToCSV(
+                exportToXLSX(
                     exportData,
                     `consigned_export_non_tspi_${consignedRefDate}`,
+                    ["itemCode"],
                 );
             };
 

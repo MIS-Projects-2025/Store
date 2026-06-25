@@ -12,7 +12,8 @@ Route::prefix($app_name)
     ->group(function () {
 
         // Ordering routes
-        Route::get('/export', [ExportController::class, 'index'])->name('export');
+        Route::get('/export',        [ExportController::class, 'index'])->name('export');
+        Route::get('/export/data',   [ExportController::class, 'data'])->name('export.data');
         Route::get('/export-selected-items', [ExportSelectedController::class, 'index'])->name('export-selected-items.index');
         Route::post('/export-selected-items', [ExportSelectedController::class, 'store'])->name('export-selected-items.store');
     });
