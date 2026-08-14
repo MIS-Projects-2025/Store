@@ -144,6 +144,9 @@ const sortByMrsNoDesc = (data) =>
         return numB - numA;
     });
 
+const sortByDeliveredAtDesc = (data) =>
+    [...data].sort((a, b) => new Date(b.deliveredAt) - new Date(a.deliveredAt));
+
 const applySearch = (data, searchTerm) => {
     if (!searchTerm.trim()) return data;
     const lower = searchTerm.toLowerCase();
@@ -1025,7 +1028,7 @@ export default function Export({ dataUrl }) {
                 tableKey,
             );
             const searchedData = applySearch(
-                sortByMrsNoDesc(filteredData),
+                sortByDeliveredAtDesc(filteredData),
                 searchTerms[tableKey],
             );
             const { data, totalPages, currentPage, totalItems } =
@@ -1445,7 +1448,7 @@ export default function Export({ dataUrl }) {
                 tableKey,
             );
             const searchedData = applySearch(
-                sortByMrsNoDesc(filteredData),
+                sortByDeliveredAtDesc(filteredData),
                 searchTerms[tableKey],
             );
             const { data, totalPages, currentPage, totalItems } =
@@ -3010,7 +3013,7 @@ export default function Export({ dataUrl }) {
                 tableKey,
             );
             const searchedData = applySearch(
-                sortByMrsNoDesc(filteredData),
+                sortByDeliveredAtDesc(filteredData),
                 searchTerms[tableKey],
             );
             const { data, totalPages, currentPage, totalItems } =

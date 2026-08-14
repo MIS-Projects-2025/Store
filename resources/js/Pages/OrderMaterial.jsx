@@ -36,14 +36,17 @@ function VariantDropdown({ anchorRef, options, selectedId, onSelect, onClose }) 
     }, []);
 
     return createPortal(
-        <ul style={style} className="bg-base-100 border-2 border-primary/60 rounded-lg shadow-2xl max-h-52 overflow-y-auto py-1">
-            {options.map(v => (
+        <ul
+            style={style}
+            className="bg-base-100 border-2 border-primary/60 rounded-lg shadow-2xl max-h-52 overflow-y-auto py-1"
+        >
+            {options.map((v) => (
                 <li
                     key={v.id}
-                    className={`px-3 py-2 text-xs cursor-pointer hover:bg-primary/15 hover:text-primary transition-colors ${
+                    className={`px-3 py-2 text-xs cursor-pointer hover:bg-primary/15 hover:text-primary transition-colors flex items-center justify-between gap-2 ${
                         selectedId === v.id
-                            ? 'bg-primary/20 font-semibold text-primary border-l-2 border-primary'
-                            : 'border-l-2 border-transparent'
+                            ? "bg-primary/20 font-semibold text-primary border-l-2 border-primary"
+                            : "border-l-2 border-transparent"
                     }`}
                     onMouseDown={(e) => {
                         e.preventDefault();
@@ -51,11 +54,16 @@ function VariantDropdown({ anchorRef, options, selectedId, onSelect, onClose }) 
                         onClose();
                     }}
                 >
-                    {v.detailed_description || '-'}
+                    <span className="truncate">
+                        {v.detailed_description || "-"}
+                    </span>
+                    <span className="opacity-50 font-mono text-[10px] flex-shrink-0">
+                        {v.item_code || "-"}
+                    </span>
                 </li>
             ))}
         </ul>,
-        document.body
+        document.body,
     );
 }
 
